@@ -2,8 +2,6 @@ package model
 
 import (
 	"context"
-
-	"github.com/shiningrush/droplet/data"
 )
 
 type IDType interface {
@@ -32,8 +30,6 @@ func (e *Entity[P]) SetID(id P) {
 type OperatorCarrier interface {
 	SetUser(user string)
 }
-
-type SortAble = data.SortAble
 
 type CtxKey string
 

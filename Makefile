@@ -10,10 +10,6 @@ tidy:
 	@$(foreach dir,$(shell go list -f {{.Dir}} ./...),goimports -w $(dir);)
 	@$(foreach dir,$(shell go list -f {{.Dir}} ./...),gofmt -s -w $(dir);)
 
-.PHONY: build
-build:
-	@bash ./build.sh
-
 .PHONY: test
 test:
 	@go test -coverprofile=coverage.out ./...

@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dev-ofa/core-go/model/datax"
+
 	"github.com/dev-ofa/core-go/model"
 	"github.com/dev-ofa/core-go/pass"
 
 	"github.com/avast/retry-go"
-	"github.com/shiningrush/droplet/data"
 	"github.com/shiningrush/goext/gtx"
 	"github.com/shiningrush/goext/timex"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -124,8 +125,8 @@ type CollectionLib[P model.IDType, T model.EntityConstraint[P]] struct {
 
 type PageQueryInput struct {
 	Filter bson.M
-	Pager  data.PagerInfo
-	Sort   data.SortInfo
+	Pager  datax.PagerInfo
+	Sort   datax.SortInfo
 }
 
 func (l *CollectionLib[P, T]) WithRepoOpt(opt *model.RepoOpt) *CollectionLib[P, T] {
@@ -305,7 +306,7 @@ func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (r
 	if opt.TryFixSyncDelay == model.FixedStrategyNone || opt.TryFixSyncDelay == "" {
 		if err := l.cls.FindOne(ctx, filter).Decode(&ret); err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
-				return ret, data.ErrNotFound
+				return ret, datax.ErrNotFound
 			}
 
 			return ret, fmt.Errorf("mongo find failed: %w", err)
@@ -318,7 +319,7 @@ func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (r
 	err = retry.Do(func() error {
 		if err := l.cls.FindOne(ctx, filter).Decode(&ret); err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
-				return data.ErrNotFound
+				return datax.ErrNotFound
 			}
 
 			return fmt.Errorf("mongo find failed: %w", err)
@@ -329,7 +330,7 @@ func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (r
 		retry.Delay(time.Millisecond*50),
 		retry.MaxJitter(time.Millisecond*50),
 		retry.RetryIf(func(err error) bool {
-			return data.ErrNotFound.Is(err)
+			return datax.ErrNotFound.Is(err)
 		}))
 
 	return
@@ -347,7 +348,7 @@ func (l *CollectionLib[P, T]) Create(ctx context.Context, doc T) (T, error) {
 	_, err := l.cls.InsertOne(ctx, doc)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			return gtx.Zero[T](), data.ErrConflict
+			return gtx.Zero[T](), datax.ErrConflict
 		}
 		return gtx.Zero[T](), fmt.Errorf("create doc failed: %w", err)
 	}
@@ -379,7 +380,7 @@ func (l *CollectionLib[P, T]) commonReplace(ctx context.Context, doc T, isUpsert
 	rpRet, err := l.cls.ReplaceOne(ctx, filter, doc, options.Replace().SetUpsert(isUpsert))
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			return gtx.Zero[T](), data.ErrConflict
+			return gtx.Zero[T](), datax.ErrConflict
 		}
 		return gtx.Zero[T](), fmt.Errorf("create doc failed: %w", err)
 	}
@@ -395,14 +396,14 @@ func (l *CollectionLib[P, T]) commonReplace(ctx context.Context, doc T, isUpsert
 			return gtx.Zero[T](), fmt.Errorf("check id failed: %w", err)
 		}
 		if cnt > 0 {
-			return gtx.Zero[T](), data.NewConflictError("data is modified by other")
+			return gtx.Zero[T](), datax.NewConflictError("data is modified by other")
 		}
 
-		return gtx.Zero[T](), data.ErrNotFound
+		return gtx.Zero[T](), datax.ErrNotFound
 	}
 
 	if _, ok := filter["updated_at"]; ok && rpRet.ModifiedCount == 0 {
-		return gtx.Zero[T](), data.NewConflictError("optimistic locking failed")
+		return gtx.Zero[T](), datax.NewConflictError("optimistic locking failed")
 	}
 
 	return doc, nil
@@ -501,11 +502,11 @@ func (l *CollectionLib[P, T]) PatchRaw(ctx context.Context, input *PatchRawInput
 	}
 
 	if ret.MatchedCount == 0 {
-		return data.ErrNotFound
+		return datax.ErrNotFound
 	}
 
 	if _, ok := input.Filter["updated_at"]; ok && ret.ModifiedCount == 0 {
-		return data.NewConflictError("optimistic locking failed")
+		return datax.NewConflictError("optimistic locking failed")
 	}
 
 	return nil
@@ -534,7 +535,7 @@ func (l *CollectionLib[P, T]) Delete(ctx context.Context, doc T) (err error) {
 		return err
 	}
 	if dr.DeletedCount == 0 {
-		return data.ErrNotFound
+		return datax.ErrNotFound
 	}
 
 	return
@@ -556,7 +557,7 @@ func (l *CollectionLib[P, T]) BatchCreate(ctx context.Context, docs []T) error {
 	_, err := l.cls.InsertMany(ctx, mongoDocs)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			return data.ErrConflict
+			return datax.ErrConflict
 		}
 		return fmt.Errorf("batch create doc failed: %w", err)
 	}
@@ -617,7 +618,7 @@ func (l *CollectionLib[P, T]) BatchDeleteByFilter(ctx context.Context, filter bs
 		}
 
 		if ret.MatchedCount == 0 {
-			return 0, data.ErrNotFound
+			return 0, datax.ErrNotFound
 		}
 
 		return int(ret.MatchedCount), nil
@@ -629,7 +630,7 @@ func (l *CollectionLib[P, T]) BatchDeleteByFilter(ctx context.Context, filter bs
 	}
 
 	if ret.DeletedCount == 0 {
-		return 0, data.ErrNotFound
+		return 0, datax.ErrNotFound
 	}
 
 	return int(ret.DeletedCount), nil
