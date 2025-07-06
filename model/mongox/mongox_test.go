@@ -3,6 +3,7 @@ package mongox
 import (
 	"context"
 	"fmt"
+	"github.com/dev-ofa/core-go/model/datax"
 	"strconv"
 	"testing"
 	"time"
@@ -15,10 +16,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
-)
-
-var (
-	UriTpl = "mongodb://localhost:27017?connectTimeoutMS=2000"
 )
 
 type testEntity struct {
@@ -305,7 +302,7 @@ func (ct *CollectionLibTests) TestQuery() {
 	// sort
 	pageRet, err = lib.PageQuery(cx, &PageQueryInput{
 		Pager: &model.Pager{},
-		Sort:  &model.SortAble{OrderBy: "created_at desc, updated_at desc"},
+		Sort:  &datax.SortAble{OrderBy: "created_at desc, updated_at desc"},
 	})
 	ct.Require().NoError(err)
 	ct.Equal(8, len(pageRet.Rows))
