@@ -9,9 +9,7 @@ import (
 	"github.com/dev-ofa/core-go/pass"
 )
 
-var defLog Logger = &StdoutLogger{
-	logger: log.New(os.Stdout, "", log.LstdFlags|log.Lshortfile),
-}
+var defLog Logger = NewStdoutLogger()
 
 // SetLogger for testing
 func SetLogger(log Logger) {
@@ -38,7 +36,13 @@ const (
 	LogLevelFatal = "FATAL"
 )
 
-// default logger
+func NewStdoutLogger() *StdoutLogger {
+	return &StdoutLogger{
+		logger: log.New(os.Stdout, "", log.LstdFlags|log.Lshortfile),
+	}
+}
+
+// StdoutLogger
 type StdoutLogger struct {
 	logger *log.Logger
 }
