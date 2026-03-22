@@ -21,10 +21,12 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+// BuildPatchPayload builds a bson patch payload from a struct pointer.
 func BuildPatchPayload(ptr any) bson.M {
 	return BuildPatchPayloadWithParent(reflect.ValueOf(ptr), "")
 }
 
+// BuildPatchPayloadWithParent builds a patch payload with parent key prefix.
 func BuildPatchPayloadWithParent(v reflect.Value, parent string) bson.M {
 	t := v.Type()
 	if t.Kind() == reflect.Ptr {
@@ -78,6 +80,7 @@ func genDbKey(parent, fieldKey string) string {
 	return fmt.Sprintf("%s.%s", parent, fieldKey)
 }
 
+// NewCollectionLib creates a Mongo collection helper for a given entity type.
 func NewCollectionLib[P model.IDType, T model.EntityConstraint[P]](cls *mongo.Collection) *CollectionLib[P, T] {
 	if cls == nil {
 		panic("cls should not be empty")
@@ -116,6 +119,7 @@ func NewCollectionLib[P model.IDType, T model.EntityConstraint[P]](cls *mongo.Co
 	}
 }
 
+// CollectionLib is a Mongo collection helper with repo options.
 type CollectionLib[P model.IDType, T model.EntityConstraint[P]] struct {
 	cls *mongo.Collection
 	opt *model.RepoOpt
@@ -123,17 +127,23 @@ type CollectionLib[P model.IDType, T model.EntityConstraint[P]] struct {
 	idKey string
 }
 
+// PageQueryInput wraps filter, pager, and sorter for paging queries.
 type PageQueryInput struct {
+	// Filter is the Mongo filter.
 	Filter bson.M
-	Pager  datax.PagerInfo
-	Sort   datax.SortInfo
+	// Pager is the paging input.
+	Pager datax.PagerInfo
+	// Sort is the sorting input.
+	Sort datax.SortInfo
 }
 
+// WithRepoOpt sets repo options on the collection helper.
 func (l *CollectionLib[P, T]) WithRepoOpt(opt *model.RepoOpt) *CollectionLib[P, T] {
 	l.opt = opt
 	return l
 }
 
+// GetMergedRepoOpt merges context repo options with local options.
 func (l *CollectionLib[P, T]) GetMergedRepoOpt(ctx context.Context) *model.RepoOpt {
 	return model.CtxMergeRepoOpt(ctx, l.opt)
 }
@@ -193,6 +203,7 @@ func (l *CollectionLib[P, T]) injectSoftDeleteCond(ctx context.Context, filter b
 	return filter, nil
 }
 
+// InjectCond injects isolation and soft-delete conditions into filter.
 func (l *CollectionLib[P, T]) InjectCond(ctx context.Context, filter bson.M) (bson.M, error) {
 	if filter == nil {
 		filter = bson.M{}
@@ -209,6 +220,7 @@ func (l *CollectionLib[P, T]) InjectCond(ctx context.Context, filter bson.M) (bs
 	return filter, nil
 }
 
+// Find queries documents by filter.
 func (l *CollectionLib[P, T]) Find(ctx context.Context, filter bson.M, opts ...options.Lister[options.FindOptions]) (ret []T, err error) {
 	filter, err = l.InjectCond(ctx, filter)
 	if err != nil {
@@ -227,6 +239,7 @@ func (l *CollectionLib[P, T]) Find(ctx context.Context, filter bson.M, opts ...o
 	return
 }
 
+// PageQuery performs a paged query with filter, sort, and paging input.
 func (l *CollectionLib[P, T]) PageQuery(ctx context.Context, input *PageQueryInput) (ret *model.PagedResult[T], err error) {
 	input.Filter, err = l.InjectCond(ctx, input.Filter)
 	if err != nil {
@@ -291,11 +304,13 @@ func (l *CollectionLib[P, T]) modifySortOpt(opt *options.FindOptionsBuilder, inp
 	opt.SetSort(sortConf)
 }
 
+// Get fetches one document by id.
 func (l *CollectionLib[P, T]) Get(ctx context.Context, id P) (ret T, err error) {
 	filter := bson.M{l.idKey: id}
 	return l.GetByFilter(ctx, filter)
 }
 
+// GetByFilter fetches one document by filter with optional retry strategy.
 func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (ret T, err error) {
 	filter, err = l.InjectCond(ctx, filter)
 	if err != nil {
@@ -336,6 +351,7 @@ func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (r
 	return
 }
 
+// Create inserts a new document with audit fields applied.
 func (l *CollectionLib[P, T]) Create(ctx context.Context, doc T) (T, error) {
 	if err := l.checkIfIDExisted(doc); err != nil {
 		return gtx.Zero[T](), err
@@ -363,10 +379,12 @@ func (l *CollectionLib[P, T]) checkIfIDExisted(doc T) error {
 	return nil
 }
 
+// Update replaces a document, using optimistic checks when configured.
 func (l *CollectionLib[P, T]) Update(ctx context.Context, doc T) (ret T, err error) {
 	return l.commonReplace(ctx, doc, false)
 }
 
+// Upsert replaces or inserts a document.
 func (l *CollectionLib[P, T]) Upsert(ctx context.Context, doc T) (ret T, err error) {
 	return l.commonReplace(ctx, doc, true)
 }
@@ -451,6 +469,7 @@ func (l *CollectionLib[P, T]) baseUpdateOp(ctx context.Context, doc T) (bson.M, 
 	return filter, nil
 }
 
+// Patch updates non-zero fields on a document by id.
 func (l *CollectionLib[P, T]) Patch(ctx context.Context, doc T) (err error) {
 	filter, err := l.baseUpdateOp(ctx, doc)
 	if err != nil {
@@ -466,13 +485,19 @@ func (l *CollectionLib[P, T]) Patch(ctx context.Context, doc T) (err error) {
 	})
 }
 
+// PatchRawInput defines raw patch parameters.
 type PatchRawInput struct {
-	Filter         bson.M
-	PatchPayload   bson.M
-	IsMany         bool
+	// Filter is the Mongo filter for patch.
+	Filter bson.M
+	// PatchPayload is the update payload.
+	PatchPayload bson.M
+	// IsMany controls UpdateMany vs UpdateOne.
+	IsMany bool
+	// SkipInjectCond skips isolation and soft delete injection.
 	SkipInjectCond bool
 }
 
+// PatchRaw applies a patch payload with optional filter injection.
 func (l *CollectionLib[P, T]) PatchRaw(ctx context.Context, input *PatchRawInput) (err error) {
 	if !input.SkipInjectCond {
 		input.Filter, err = l.InjectCond(ctx, input.Filter)
@@ -512,6 +537,7 @@ func (l *CollectionLib[P, T]) PatchRaw(ctx context.Context, input *PatchRawInput
 	return nil
 }
 
+// Delete deletes a document or applies soft delete when enabled.
 func (l *CollectionLib[P, T]) Delete(ctx context.Context, doc T) (err error) {
 	hasDeleteAudit, err := model.CtxDeleteAudit(ctx, doc)
 	if err != nil {
@@ -541,6 +567,7 @@ func (l *CollectionLib[P, T]) Delete(ctx context.Context, doc T) (err error) {
 	return
 }
 
+// BatchCreate inserts documents in batch without transactional guarantees.
 func (l *CollectionLib[P, T]) BatchCreate(ctx context.Context, docs []T) error {
 	var mongoDocs []interface{}
 	for _, doc := range docs {
@@ -565,6 +592,7 @@ func (l *CollectionLib[P, T]) BatchCreate(ctx context.Context, docs []T) error {
 	return nil
 }
 
+// BatchUpdate updates documents one by one.
 func (l *CollectionLib[P, T]) BatchUpdate(ctx context.Context, docs []T) error {
 	for _, v := range docs {
 		if _, err := l.Update(ctx, v); err != nil {
@@ -574,6 +602,7 @@ func (l *CollectionLib[P, T]) BatchUpdate(ctx context.Context, docs []T) error {
 	return nil
 }
 
+// BatchDelete deletes documents by ids.
 func (l *CollectionLib[P, T]) BatchDelete(ctx context.Context, docs []T) (int, error) {
 	var ids []P
 	for _, v := range docs {
@@ -583,6 +612,7 @@ func (l *CollectionLib[P, T]) BatchDelete(ctx context.Context, docs []T) (int, e
 	return l.BatchDeleteByIDs(ctx, ids)
 }
 
+// BatchDeleteByIDs deletes documents by id list.
 func (l *CollectionLib[P, T]) BatchDeleteByIDs(ctx context.Context, ids []P) (cnt int, err error) {
 	if len(ids) == 0 {
 		return 0, nil
@@ -592,6 +622,7 @@ func (l *CollectionLib[P, T]) BatchDeleteByIDs(ctx context.Context, ids []P) (cn
 	return l.BatchDeleteByFilter(ctx, filter)
 }
 
+// BatchDeleteByFilter deletes documents by filter with isolation rules.
 func (l *CollectionLib[P, T]) BatchDeleteByFilter(ctx context.Context, filter bson.M) (cnt int, err error) {
 	filter, err = l.InjectCond(ctx, filter)
 	if err != nil {
@@ -636,6 +667,7 @@ func (l *CollectionLib[P, T]) BatchDeleteByFilter(ctx context.Context, filter bs
 	return int(ret.DeletedCount), nil
 }
 
+// Ptr returns a pointer to val.
 func Ptr[T any](val T) *T {
 	return &val
 }

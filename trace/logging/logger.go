@@ -28,6 +28,7 @@ func buildTraceMsg(ctx context.Context) string {
 	return fmt.Sprintf("trace_id: %s request_id: %s", traceId, reqId)
 }
 
+// LogLevelDebug and related constants define log levels used by StdoutLogger.
 const (
 	LogLevelDebug = "DEBUG"
 	LogLevelInfo  = "INFO"
@@ -36,13 +37,14 @@ const (
 	LogLevelFatal = "FATAL"
 )
 
+// NewStdoutLogger returns a logger writing to stdout.
 func NewStdoutLogger() *StdoutLogger {
 	return &StdoutLogger{
 		logger: log.New(os.Stdout, "", log.LstdFlags|log.Lshortfile),
 	}
 }
 
-// StdoutLogger
+// StdoutLogger writes logs to stdout with trace and request info.
 type StdoutLogger struct {
 	logger *log.Logger
 }
@@ -53,26 +55,31 @@ func (s *StdoutLogger) ctxPrintf(ctx context.Context, level string, format strin
 }
 
 func (s *StdoutLogger) printf(level string, format string, v ...any) {
-	text := fmt.Sprintf("level: %s msg: %s", level, fmt.Sprintf(format, v...))
+	text := fmt.Sprintf("%s level: %s msg: %s", buildTraceMsg(context.Background()), level, fmt.Sprintf(format, v...))
 	s.logger.Output(4, text)
 }
 
+// CtxDebugf logs a debug message with context.
 func (s *StdoutLogger) CtxDebugf(ctx context.Context, msg string, args ...interface{}) {
 	s.ctxPrintf(ctx, LogLevelDebug, msg, args...)
 }
 
+// CtxInfof logs an info message with context.
 func (s *StdoutLogger) CtxInfof(ctx context.Context, msg string, args ...interface{}) {
 	s.ctxPrintf(ctx, LogLevelInfo, msg, args...)
 }
 
+// CtxWarnf logs a warn message with context.
 func (s *StdoutLogger) CtxWarnf(ctx context.Context, msg string, args ...interface{}) {
-	s.ctxPrintf(ctx, LogLevelError, msg, args...)
+	s.ctxPrintf(ctx, LogLevelWarn, msg, args...)
 }
 
+// CtxErrorf logs an error message with context.
 func (s *StdoutLogger) CtxErrorf(ctx context.Context, msg string, args ...interface{}) {
 	s.ctxPrintf(ctx, LogLevelError, msg, args...)
 }
 
+// CtxFatalf logs a fatal message with context and exits.
 func (s *StdoutLogger) CtxFatalf(ctx context.Context, msg string, args ...interface{}) {
 	s.ctxPrintf(ctx, LogLevelFatal, msg, args...)
 	os.Exit(1)

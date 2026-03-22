@@ -6,12 +6,15 @@ import (
 	"time"
 )
 
+// UpdatesResult records original update metadata for optimistic checks.
 type UpdatesResult struct {
+	// HasOriginalUpdate indicates whether original updated time existed.
 	HasOriginalUpdate bool
-	// OriginalUpdatedAt may be time.Time or int64
+	// OriginalUpdatedAt is the original update time, time.Time or int64.
 	OriginalUpdatedAt any
 }
 
+// UpdateLockAndAudit updates audit fields and returns previous update info if present.
 func UpdateLockAndAudit[T any](ctx context.Context, doc T, opt *RepoOpt) (*UpdatesResult, error) {
 	var originalUpdated time.Time
 	var originalRawUpdated any

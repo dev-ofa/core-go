@@ -22,17 +22,25 @@ const (
 )
 
 var (
+	// ErrNotFound is a shared not-found error instance.
 	ErrNotFound = &BaseError{Code: ErrCodeNotFound, Message: "data not found"}
+	// ErrConflict is a shared conflict error instance.
 	ErrConflict = &BaseError{Code: ErrCodeConflict, Message: "data is existed or has be updated"}
 )
 
+// BaseError is the common error type with code and message.
 type BaseError struct {
+	// Code is the business error code.
 	Code      int
+	// Message is the human-readable message.
 	Message   string
+	// Data carries extra error details.
 	Data      interface{}
+	// SourceSrv is the upstream service name if any.
 	SourceSrv string
 }
 
+// Error implements error.
 func (e *BaseError) Error() string {
 	if e.SourceSrv != "" {
 		return fmt.Sprintf("call: %s failed, code: %d, msg: %s", e.SourceSrv, e.Code, e.Message)
@@ -40,16 +48,22 @@ func (e *BaseError) Error() string {
 	return e.Message
 }
 
+// Is checks whether err matches this error code.
 func (e *BaseError) Is(err error) bool {
 	return IsErrCode(e.Code, err)
 }
 
+// ErrWrapper wraps validation errors with code and message.
 type ErrWrapper struct {
+	// Code is the business error code.
 	Code int
+	// Msg is the error message.
 	Msg  string
+	// Data carries extra error details.
 	Data interface{}
 }
 
+// Error implements error.
 func (e *ErrWrapper) Error() string {
 	if e.Data != nil {
 		return fmt.Sprintf("wrapper validate failed, code: [%d], msg : [%s], data: [%+v]", e.Code, e.Msg, e.Data)
@@ -58,11 +72,15 @@ func (e *ErrWrapper) Error() string {
 	return fmt.Sprintf("wrapper validate failed, code: [%d], msg : [%s]", e.Code, e.Msg)
 }
 
+// ErrHttp reports HTTP validation errors from external calls.
 type ErrHttp struct {
+	// StatusCode is the HTTP status code.
 	StatusCode int
+	// Body is the raw response body.
 	Body       []byte
 }
 
+// Error implements error.
 func (e *ErrHttp) Error() string {
 	if len(e.Body) == 0 {
 		return fmt.Sprintf("http validate failed, status: [%d]", e.StatusCode)
@@ -70,22 +88,30 @@ func (e *ErrHttp) Error() string {
 	return fmt.Sprintf("http validate failed, status: [%d], body : [%s]", e.StatusCode, string(e.Body))
 }
 
+// ErrCall represents an upstream call failure with context.
 type ErrCall struct {
+	// Url is the request URL.
 	Url       string
+	// RequestID is the upstream request id.
 	RequestID string
+	// Method is the HTTP method.
 	Method    string
 
+	// SrcErr is the original error.
 	SrcErr error
 }
 
+// Error implements error.
 func (e *ErrCall) Error() string {
 	return fmt.Sprintf("%s [%s] failed, reqid:[%s], source err: [%s]", e.Method, e.Url, e.RequestID, e.SrcErr)
 }
 
+// Unwrap exposes the source error.
 func (e *ErrCall) Unwrap() error {
 	return e.SrcErr
 }
 
+// NewNotFoundError returns a not-found error with custom message.
 func NewNotFoundError(msg string) error {
 	if msg == "" {
 		return ErrNotFound
@@ -96,6 +122,7 @@ func NewNotFoundError(msg string) error {
 	}
 }
 
+// NewConflictError returns a conflict error with custom message.
 func NewConflictError(msg string) error {
 	if msg == "" {
 		return ErrConflict
@@ -106,6 +133,7 @@ func NewConflictError(msg string) error {
 	}
 }
 
+// NewInternalError returns an internal error with default message.
 func NewInternalError(msg string) error {
 	if msg == "" {
 		msg = "internal server error"
@@ -116,6 +144,7 @@ func NewInternalError(msg string) error {
 	}
 }
 
+// NewFriendlyError returns a friendly error message for clients.
 func NewFriendlyError(msg string) error {
 	return &BaseError{
 		Code:    ErrCodeFriendly,
@@ -123,10 +152,12 @@ func NewFriendlyError(msg string) error {
 	}
 }
 
+// ValidateError is a typed validation error.
 type ValidateError struct {
 	BaseError
 }
 
+// NewValidateError returns a validation error with detail items.
 func NewValidateError(msg string, items []ValidateErrItem) error {
 	if msg == "" {
 		msg = "parameter validate failed"
@@ -138,12 +169,17 @@ func NewValidateError(msg string, items []ValidateErrItem) error {
 	}
 }
 
+// ValidateErrItem describes one invalid parameter.
 type ValidateErrItem struct {
+	// ParamName is the parameter name.
 	ParamName string      `json:"paramName"`
+	// Reason describes why it's invalid.
 	Reason    string      `json:"reason"`
+	// Detail carries extra detail.
 	Detail    interface{} `json:"detail"`
 }
 
+// IsErrCode checks whether err has the given business code.
 func IsErrCode(code int, err error) bool {
 	if err == nil {
 		return false
