@@ -11,7 +11,12 @@ import (
 
 var defLog Logger = NewStdoutLogger()
 
-// SetLogger for testing
+// GetLogger returns the default logger.
+func GetLogger() Logger {
+	return defLog
+}
+
+// SetLogger sets the default logger.
 func SetLogger(log Logger) {
 	defLog = log
 }
