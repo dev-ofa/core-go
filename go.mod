@@ -6,6 +6,7 @@ require (
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/shiningrush/droplet v0.4.3-0.20250209053605-ea3be2d78f9f
 	github.com/shiningrush/goext v0.2.4-0.20230805045150-8b8c5748342b
+	github.com/sony/sonyflake v1.1.0
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 	go.mongodb.org/mongo-driver/v2 v2.2.2
