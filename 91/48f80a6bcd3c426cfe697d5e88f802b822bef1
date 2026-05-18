@@ -1,0 +1,57 @@
+AGENTS.md
+  3eac95895791b6fb 3 gitai:{"mixed_line_ranges":[{"Single":3}],"operations":[]}
+.gitignore
+  3f4d1dbe57d3f58b 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9148f80a6bcd3c426cfe697d5e88f802b822bef1",
+  "prompts": {
+    "3eac95895791b6fb": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-2fae9490-4cae-4e9b-a4e2-93c153ee2f57",
+        "model": "default"
+      },
+      "human_author": "ShiningRush <277040271@qq.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 1
+    },
+    "3f4d1dbe57d3f58b": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-addc30fc-47a5-44dd-a357-b16004d48a65",
+        "model": "default"
+      },
+      "human_author": "ShiningRush <277040271@qq.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {
+    "AGENTS.md": [
+      {
+        "hash": "3eac95895791b6fb",
+        "line_ranges": [
+          {
+            "Single": 3
+          }
+        ],
+        "mixed_line_ranges": [
+          {
+            "Single": 3
+          }
+        ],
+        "operations": []
+      }
+    ]
+  },
+  "remote_transcripts": {}
+}
