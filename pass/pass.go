@@ -88,18 +88,12 @@ func CtxSetAppID(ctx context.Context, val string) context.Context {
 
 // CtxGetPassVal reads a value with pass prefix.
 func CtxGetPassVal(ctx context.Context, key string) (string, bool) {
-	if isDirectKey(key) {
-		return CtxGetDirectVal(ctx, key)
-	}
 	val, ok := ctx.Value(FixedKey(key)).(string)
 	return val, ok
 }
 
 // CtxSetPassVal writes a value with pass prefix.
 func CtxSetPassVal(ctx context.Context, key string, val string) context.Context {
-	if isDirectKey(key) {
-		return CtxSetDirectVal(ctx, key, val)
-	}
 	fixedKey := FixedKey(key)
 	ctx = context.WithValue(ctx, fixedKey, val)
 	headers := CtxPassHeaders(ctx)
@@ -144,13 +138,4 @@ func FixedKeyDirect(key string) string {
 	}
 	key = strings.TrimPrefix(key, "OFA_")
 	return "OFA_DIRECT_" + key
-}
-
-func isDirectKey(key string) bool {
-	switch strings.TrimPrefix(strings.ToUpper(key), "OFA_") {
-	case KeyRequestID, KeyRemainingTimeoutMS:
-		return true
-	default:
-		return false
-	}
 }

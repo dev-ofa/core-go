@@ -49,8 +49,12 @@ func (impl *RandomNumberImpl) GetUniqueRandomNumber(ctx context.Context, max int
 	}
 
 	expires := time.Now().Add(time.Minute)
-	for {
-		num := impl.nextInt(max)
+	for _, num := range impl.nextPerm(max) {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
 		findRet := RandInfo{}
 		err := impl.cls.FindOne(ctx, bson.M{"_id": num}).Decode(&findRet)
 		if err != nil && !errors.Is(err, mongo.ErrNoDocuments) {
@@ -80,10 +84,11 @@ func (impl *RandomNumberImpl) GetUniqueRandomNumber(ctx context.Context, max int
 			}
 		}
 	}
+	return 0, dkit.ErrNoAvailableNumber
 }
 
-func (impl *RandomNumberImpl) nextInt(max int) int {
+func (impl *RandomNumberImpl) nextPerm(max int) []int {
 	impl.randMu.Lock()
 	defer impl.randMu.Unlock()
-	return impl.r.Intn(max)
+	return impl.r.Perm(max)
 }

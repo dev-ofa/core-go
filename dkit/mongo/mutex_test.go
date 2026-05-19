@@ -105,3 +105,35 @@ func TestMongoMutex_TryLockReentrantAndExpired(t *testing.T) {
 		t.Fatalf("expired lock should be acquired")
 	}
 }
+
+func TestMongoMutex_SameInstanceRetryDoesNotLoseOwnership(t *testing.T) {
+	db := testDatabase(t)
+	collection := testPrefix(t) + "_mutex"
+	dropCollections(t, db, collection)
+
+	impl := NewMutexImpl(db.Collection(collection), time.Minute)
+	if err := impl.Init(); err != nil {
+		t.Fatalf("init mutex impl: %v", err)
+	}
+
+	mux := impl.NewMutex("lock")
+	ok, err := mux.TryLock(context.Background())
+	if err != nil {
+		t.Fatalf("first try lock: %v", err)
+	}
+	if !ok {
+		t.Fatalf("first lock should be acquired")
+	}
+
+	ok, err = mux.TryLock(context.Background())
+	if err != nil {
+		t.Fatalf("second try lock: %v", err)
+	}
+	if !ok {
+		t.Fatalf("same instance should still report ownership")
+	}
+
+	if err := mux.Unlock(context.Background()); err != nil {
+		t.Fatalf("unlock should succeed after repeated try lock: %v", err)
+	}
+}

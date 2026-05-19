@@ -41,6 +41,33 @@ func TestMongoAtomic_GetUniqueRandomNumber(t *testing.T) {
 	}
 }
 
+func TestMongoAtomic_GetUniqueRandomNumberExhausted(t *testing.T) {
+	db := testDatabase(t)
+	prefix := testPrefix(t)
+	dropCollections(t, db, prefix+"_random", prefix+"_mutex")
+
+	atomic, err := NewMongoAtomic(Database(db), CollectionPrefix(prefix))
+	if err != nil {
+		t.Fatalf("new mongo atomic: %v", err)
+	}
+	defer func() {
+		if err := atomic.Close(); err != nil {
+			t.Fatalf("close atomic: %v", err)
+		}
+	}()
+
+	for i := 0; i < 2; i++ {
+		if _, err := atomic.GetUniqueRandomNumber(context.Background(), 2); err != nil {
+			t.Fatalf("prefill number: %v", err)
+		}
+	}
+
+	_, err = atomic.GetUniqueRandomNumber(context.Background(), 2)
+	if !errors.Is(err, dkit.ErrNoAvailableNumber) {
+		t.Fatalf("want ErrNoAvailableNumber got %v", err)
+	}
+}
+
 func TestNewMongoAtomic(t *testing.T) {
 	_, err := NewMongoAtomic()
 	if err == nil {
@@ -71,6 +98,35 @@ func TestMongoAtomic_ElectionNotEnabled(t *testing.T) {
 	}
 	if ok, err := atomic.IsAlive("node"); ok || err != dkit.ErrElectionNotEnabled {
 		t.Fatalf("is alive want false and ErrElectionNotEnabled got %v %v", ok, err)
+	}
+}
+
+func TestMongoAtomic_EnableElectionTwice(t *testing.T) {
+	db := testDatabase(t)
+	prefix := testPrefix(t)
+	dropCollections(t, db, prefix+"_random", prefix+"_mutex", prefix+"_elect", prefix+"_heartbeat")
+
+	atomic, err := NewMongoAtomic(Database(db), CollectionPrefix(prefix), TTL(time.Second))
+	if err != nil {
+		t.Fatalf("new mongo atomic: %v", err)
+	}
+	defer func() {
+		if err := atomic.Close(); err != nil {
+			t.Fatalf("close atomic: %v", err)
+		}
+	}()
+
+	opt := &dkit.ElectionOption{
+		NodeKey:       "node-1",
+		KeepHeartbeat: true,
+		UnhealthyTime: 200 * time.Millisecond,
+		Timeout:       time.Second,
+	}
+	if err := atomic.EnableElection(opt); err != nil {
+		t.Fatalf("enable election first time: %v", err)
+	}
+	if err := atomic.EnableElection(opt); !errors.Is(err, dkit.ErrInvalidOption) {
+		t.Fatalf("enable election second time want ErrInvalidOption got %v", err)
 	}
 }
 

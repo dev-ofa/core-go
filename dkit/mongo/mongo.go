@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/dev-ofa/core-go/dkit"
@@ -32,6 +33,8 @@ var _ dkit.Atomic = (*Atomic)(nil)
 
 // Atomic implements DKit primitives with MongoDB collections.
 type Atomic struct {
+	mu sync.RWMutex
+
 	randomImpl *RandomNumberImpl
 	mutexImpl  *MutexImpl
 	electImpl  *ElectionImpl
@@ -116,16 +119,24 @@ func NewMongoAtomic(ops ...BuilderOptionOp) (*Atomic, error) {
 
 // NodeKey returns the election node key.
 func (at *Atomic) NodeKey() string {
-	if at.electImpl == nil {
+	at.mu.RLock()
+	elect := at.electImpl
+	at.mu.RUnlock()
+	if elect == nil {
 		return ""
 	}
-	return at.electImpl.NodeKey()
+	return elect.NodeKey()
 }
 
 // EnableElection enables leader election and optional heartbeat.
 func (at *Atomic) EnableElection(opt *dkit.ElectionOption) error {
 	if at.opt.mongoDB == nil {
 		return fmt.Errorf("%w: mongo database is nil", dkit.ErrInvalidOption)
+	}
+	at.mu.Lock()
+	defer at.mu.Unlock()
+	if at.electImpl != nil {
+		return fmt.Errorf("%w: election already enabled", dkit.ErrInvalidOption)
 	}
 	elect := NewElectionImpl(opt,
 		at.opt.mongoDB.Collection(fmt.Sprintf("%s_elect", at.opt.prefix)),
@@ -140,32 +151,45 @@ func (at *Atomic) EnableElection(opt *dkit.ElectionOption) error {
 
 // IsLeader reports whether this node is currently leader.
 func (at *Atomic) IsLeader() bool {
-	if at.electImpl == nil {
+	at.mu.RLock()
+	elect := at.electImpl
+	at.mu.RUnlock()
+	if elect == nil {
 		return false
 	}
-	return at.electImpl.IsLeader()
+	return elect.IsLeader()
 }
 
 // AliveNodes returns alive heartbeat nodes.
 func (at *Atomic) AliveNodes() ([]string, error) {
-	if at.electImpl == nil {
+	at.mu.RLock()
+	elect := at.electImpl
+	at.mu.RUnlock()
+	if elect == nil {
 		return nil, dkit.ErrElectionNotEnabled
 	}
-	return at.electImpl.AliveNodes()
+	return elect.AliveNodes()
 }
 
 // IsAlive reports whether nodeKey has a non-expired heartbeat.
 func (at *Atomic) IsAlive(nodeKey string) (bool, error) {
-	if at.electImpl == nil {
+	at.mu.RLock()
+	elect := at.electImpl
+	at.mu.RUnlock()
+	if elect == nil {
 		return false, dkit.ErrElectionNotEnabled
 	}
-	return at.electImpl.IsAlive(nodeKey)
+	return elect.IsAlive(nodeKey)
 }
 
 // Close releases election resources.
 func (at *Atomic) Close() error {
-	if at.electImpl != nil {
-		at.electImpl.Close()
+	at.mu.Lock()
+	elect := at.electImpl
+	at.electImpl = nil
+	at.mu.Unlock()
+	if elect != nil {
+		elect.Close()
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/dev-ofa/core-go/dkit"
@@ -49,6 +50,7 @@ func (impl *MutexImpl) GetMutexDefaultTTL() time.Duration {
 
 // Mutex is a MongoDB-backed distributed mutex.
 type Mutex struct {
+	mu  sync.Mutex
 	key string
 
 	mongoCls   *mongo.Collection
@@ -58,6 +60,8 @@ type Mutex struct {
 
 // Lock waits until the lock is acquired, the context is canceled, or MaxWaitTime is reached.
 func (m *Mutex) Lock(ctx context.Context, ops ...dkit.LockOptionOp) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -94,6 +98,8 @@ func (m *Mutex) Lock(ctx context.Context, ops ...dkit.LockOptionOp) error {
 
 // TryLock attempts to acquire the lock once.
 func (m *Mutex) TryLock(ctx context.Context, ops ...dkit.LockOptionOp) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -107,6 +113,9 @@ func (m *Mutex) TryLock(ctx context.Context, ops ...dkit.LockOptionOp) (bool, er
 func (m *Mutex) tryLock(ctx context.Context, opt *dkit.LockOption) error {
 	if m.mongoCls == nil {
 		return fmt.Errorf("%w: mongo collection is nil", dkit.ErrInvalidOption)
+	}
+	if m.lockDetail != nil {
+		return nil
 	}
 	detail := LockDetail{}
 	err := m.mongoCls.FindOne(ctx, bson.M{"_id": m.key}).Decode(&detail)
@@ -160,6 +169,8 @@ func (m *Mutex) tryLock(ctx context.Context, opt *dkit.LockOption) error {
 
 // Unlock releases the lock owned by this mutex instance.
 func (m *Mutex) Unlock(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}

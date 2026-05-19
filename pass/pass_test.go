@@ -57,25 +57,6 @@ func TestPassHeadersEnumeration(t *testing.T) {
 	require.Equal(t, "gray", again["OFA_PASS_FEATURE_FLAG"])
 }
 
-func TestPassValKeepsDirectKeysCompatible(t *testing.T) {
-	ctx := context.Background()
-	ctx = CtxSetPassVal(ctx, KeyRequestID, "request-1")
-	ctx = CtxSetPassVal(ctx, KeyRemainingTimeoutMS, "3000")
-
-	requestID, ok := CtxGetRequestID(ctx)
-	require.True(t, ok)
-	require.Equal(t, "request-1", requestID)
-	remainingTimeout, ok := CtxGetRemainingTimeoutMS(ctx)
-	require.True(t, ok)
-	require.Equal(t, "3000", remainingTimeout)
-
-	headers := CtxPassHeaders(ctx)
-	_, exists := headers[trace.HeaderRequestID]
-	require.False(t, exists)
-	_, exists = headers[trace.HeaderRemainingTimeoutMS]
-	require.False(t, exists)
-}
-
 func TestFixedKeyAvoidsDoublePrefix(t *testing.T) {
 	require.Equal(t, "TRACE_ID", KeyTraceID)
 	require.Equal(t, "REQUEST_ID", KeyRequestID)
