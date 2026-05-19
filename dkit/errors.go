@@ -16,3 +16,6 @@ var ErrElectionNotEnabled = errors.New("dkit: election not enabled")
 
 // ErrBackendUnavailable indicates that the underlying coordination backend is unavailable.
 var ErrBackendUnavailable = errors.New("dkit: backend unavailable")
+
+// ErrNoAvailableNumber indicates that the bounded number range is temporarily exhausted.
+var ErrNoAvailableNumber = errors.New("dkit: no available number")

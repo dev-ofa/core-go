@@ -52,13 +52,14 @@ type Meta struct {
 	Summary map[string]any
 }
 
-// Load merges config from default, env, local, and flags, then validates and decodes.
+// Load merges config from default, env, env-file, local, and flags, then validates and decodes.
 func Load[T any](opts Options) (T, Meta, error) {
 	var zero T
 	opts = withDefaults(opts)
 	merged := map[string]any{}
 	sourceMap := map[string]string{}
 	var sources []string
+	baseDir := filepath.Dir(opts.DefaultConfigPath)
 
 	if m, ok, err := loadConfigIfExists(opts.DefaultConfigPath); err != nil {
 		return zero, Meta{}, err
@@ -76,7 +77,6 @@ func Load[T any](opts Options) (T, Meta, error) {
 	}
 
 	if env := strings.TrimSpace(os.Getenv(opts.DeployEnvKey)); env != "" {
-		baseDir := filepath.Dir(opts.DefaultConfigPath)
 		envConfigPath := filepath.Join(baseDir, fmt.Sprintf("config.%s.yaml", strings.ToLower(env)))
 		if m, ok, err := loadConfigIfExists(envConfigPath); err != nil {
 			return zero, Meta{}, err
@@ -85,6 +85,15 @@ func Load[T any](opts Options) (T, Meta, error) {
 			recordSources(sourceMap, m, "env-file", "")
 			sources = append(sources, "env-file")
 		}
+	}
+
+	localConfigPath := filepath.Join(baseDir, "config.local.yaml")
+	if m, ok, err := loadConfigIfExists(localConfigPath); err != nil {
+		return zero, Meta{}, err
+	} else if ok {
+		merged = mergeMaps(merged, m)
+		recordSources(sourceMap, m, "local", "")
+		sources = append(sources, "local")
 	}
 
 	flagMap := argsToMap(opts.Args)
@@ -153,7 +162,7 @@ func NewOptions() Options {
 
 func withDefaults(opts Options) Options {
 	if opts.DefaultConfigPath == "" {
-		opts.DefaultConfigPath = "configs/config.default.yaml"
+		opts.DefaultConfigPath = "configs/config.yaml"
 	}
 	if opts.EnvPrefix == "" {
 		opts.EnvPrefix = "APP"
@@ -542,7 +551,7 @@ func validateSensitiveSources(m map[string]any, sources map[string]string, sensi
 		if sources[path] == "env" {
 			continue
 		}
-		if s, ok := v.(string); ok && isPlaceholder(s) {
+		if s, ok := v.(string); ok && isPlaceholder(s) && sources[path] == "default" {
 			continue
 		}
 		return fmt.Errorf("sensitive config %s must come from env", path)

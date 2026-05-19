@@ -24,7 +24,7 @@ type testConfig struct {
 func TestLoadPrecedenceAndMasking(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "configs")
-	defaultPath := filepath.Join(configDir, "config.default.yaml")
+	defaultPath := filepath.Join(configDir, "config.yaml")
 	envPath := filepath.Join(configDir, "config.dev.yaml")
 
 	defaultContent := `
@@ -81,7 +81,7 @@ http:
 func TestEnvFileOptional(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "configs")
-	defaultPath := filepath.Join(configDir, "config.default.yaml")
+	defaultPath := filepath.Join(configDir, "config.yaml")
 
 	defaultContent := `
 http:
@@ -116,10 +116,127 @@ db:
 	}
 }
 
+func TestLocalFileAutoLoadedWithoutEnv(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	defaultPath := filepath.Join(configDir, "config.yaml")
+	localPath := filepath.Join(configDir, "config.local.yaml")
+
+	defaultContent := `
+http:
+  port: 8080
+db:
+  uri: "mongodb://user:******@localhost:27017/db"
+logging:
+  level: INFO
+`
+	localContent := `
+http:
+  port: 7070
+logging:
+  level: DEBUG
+`
+
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+		t.Fatalf("write default: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localContent), 0600); err != nil {
+		t.Fatalf("write local: %v", err)
+	}
+
+	opts := NewOptions()
+	opts.DefaultConfigPath = defaultPath
+	opts.RequiredKeys = []string{"db.uri"}
+	cfg, meta, err := Load[testConfig](opts)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.HTTP.Port != 7070 {
+		t.Fatalf("port want 7070 got %d", cfg.HTTP.Port)
+	}
+	if cfg.Logging.Level != "DEBUG" {
+		t.Fatalf("level want DEBUG got %s", cfg.Logging.Level)
+	}
+	if len(meta.Sources) != 2 {
+		t.Fatalf("sources want 2 got %v", meta.Sources)
+	}
+	if meta.Sources[0] != "default" || meta.Sources[1] != "local" {
+		t.Fatalf("sources want [default local] got %v", meta.Sources)
+	}
+}
+
+func TestLocalOverridesEnvFileButFlagsStillWin(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	defaultPath := filepath.Join(configDir, "config.yaml")
+	envPath := filepath.Join(configDir, "config.dev.yaml")
+	localPath := filepath.Join(configDir, "config.local.yaml")
+
+	defaultContent := `
+http:
+  port: 8080
+db:
+  uri: "mongodb://user:******@localhost:27017/db"
+logging:
+  level: INFO
+`
+	envContent := `
+http:
+  port: 7070
+logging:
+  level: WARN
+`
+	localContent := `
+http:
+  port: 6060
+logging:
+  level: DEBUG
+`
+
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+		t.Fatalf("write default: %v", err)
+	}
+	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
+		t.Fatalf("write env: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localContent), 0600); err != nil {
+		t.Fatalf("write local: %v", err)
+	}
+
+	t.Setenv("ENV", "dev")
+
+	opts := NewOptions()
+	opts.DefaultConfigPath = defaultPath
+	opts.Args = []string{"--http.port=5050"}
+	opts.RequiredKeys = []string{"db.uri"}
+	cfg, meta, err := Load[testConfig](opts)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.HTTP.Port != 5050 {
+		t.Fatalf("port want 5050 got %d", cfg.HTTP.Port)
+	}
+	if cfg.Logging.Level != "DEBUG" {
+		t.Fatalf("level want DEBUG got %s", cfg.Logging.Level)
+	}
+	if len(meta.Sources) != 4 {
+		t.Fatalf("sources want 4 got %v", meta.Sources)
+	}
+	if meta.Sources[0] != "default" || meta.Sources[1] != "env-file" || meta.Sources[2] != "local" || meta.Sources[3] != "flags" {
+		t.Fatalf("sources want [default env-file local flags] got %v", meta.Sources)
+	}
+}
+
 func TestRequiredMissing(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "configs")
-	defaultPath := filepath.Join(configDir, "config.default.yaml")
+	defaultPath := filepath.Join(configDir, "config.yaml")
 
 	defaultContent := `
 http:
@@ -138,5 +255,39 @@ http:
 	_, _, err := Load[testConfig](opts)
 	if err == nil {
 		t.Fatalf("expected missing error")
+	}
+}
+
+func TestSensitivePlaceholderOnlyAllowedFromDefault(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	defaultPath := filepath.Join(configDir, "config.yaml")
+	localPath := filepath.Join(configDir, "config.local.yaml")
+
+	defaultContent := `
+db:
+  uri: "mongodb://user:******@localhost:27017/db"
+`
+	localContent := `
+db:
+  uri: "******"
+`
+
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+		t.Fatalf("write default: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localContent), 0600); err != nil {
+		t.Fatalf("write local: %v", err)
+	}
+
+	opts := NewOptions()
+	opts.DefaultConfigPath = defaultPath
+	opts.RequiredKeys = []string{"db.uri"}
+	_, _, err := Load[testConfig](opts)
+	if err == nil {
+		t.Fatalf("expected sensitive placeholder source error")
 	}
 }

@@ -11,7 +11,6 @@ import (
 
 	"github.com/dev-ofa/core-go/model"
 
-	"github.com/shiningrush/droplet/data"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -177,10 +176,10 @@ func (ct *CollectionLibTests) TestSoftDelete() {
 	err = lib.Delete(cx, getSe)
 	ct.Require().NoError(err)
 	getSe, err = lib.Get(cx, "soft-test")
-	ct.Require().Equal(data.ErrNotFound, err)
+	ct.Require().Equal(datax.ErrNotFound, err)
 	ct.Require().Nil(getSe)
 	_, err = lib.Update(cx, se)
-	ct.Require().Equal(data.ErrNotFound, err)
+	ct.Require().Equal(datax.ErrNotFound, err)
 
 	// disable
 	cx = model.SetCtxSoftDelete(cx, model.SoftDeleteDisable)
@@ -192,7 +191,7 @@ func (ct *CollectionLibTests) TestSoftDelete() {
 	err = lib.Delete(cx, getSe)
 	ct.Require().NoError(err)
 	getSe, err = lib.Get(cx, "soft-test")
-	ct.Require().Equal(data.ErrNotFound, err)
+	ct.Require().Equal(datax.ErrNotFound, err)
 	ct.Require().Nil(getSe)
 
 	// batch-delete
@@ -202,12 +201,12 @@ func (ct *CollectionLibTests) TestSoftDelete() {
 	_, err = lib.BatchDelete(cx, []*softTestEntity{se})
 	ct.Require().NoError(err)
 	_, err = lib.BatchDelete(cx, []*softTestEntity{se})
-	ct.Require().Equal(data.ErrNotFound, err)
+	ct.Require().Equal(datax.ErrNotFound, err)
 	cx = model.SetCtxSoftDelete(cx, model.SoftDeleteDisable)
 	_, err = lib.BatchDelete(cx, []*softTestEntity{se})
 	ct.Require().NoError(err)
 	_, err = lib.BatchDelete(cx, []*softTestEntity{se})
-	ct.Require().Equal(data.ErrNotFound, err)
+	ct.Require().Equal(datax.ErrNotFound, err)
 }
 
 type createError struct {

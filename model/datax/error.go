@@ -31,11 +31,11 @@ var (
 // BaseError is the common error type with code and message.
 type BaseError struct {
 	// Code is the business error code.
-	Code      int
+	Code int
 	// Message is the human-readable message.
-	Message   string
+	Message string
 	// Data carries extra error details.
-	Data      interface{}
+	Data interface{}
 	// SourceSrv is the upstream service name if any.
 	SourceSrv string
 }
@@ -58,7 +58,7 @@ type ErrWrapper struct {
 	// Code is the business error code.
 	Code int
 	// Msg is the error message.
-	Msg  string
+	Msg string
 	// Data carries extra error details.
 	Data interface{}
 }
@@ -77,7 +77,7 @@ type ErrHttp struct {
 	// StatusCode is the HTTP status code.
 	StatusCode int
 	// Body is the raw response body.
-	Body       []byte
+	Body []byte
 }
 
 // Error implements error.
@@ -91,11 +91,11 @@ func (e *ErrHttp) Error() string {
 // ErrCall represents an upstream call failure with context.
 type ErrCall struct {
 	// Url is the request URL.
-	Url       string
+	Url string
 	// RequestID is the upstream request id.
 	RequestID string
 	// Method is the HTTP method.
-	Method    string
+	Method string
 
 	// SrcErr is the original error.
 	SrcErr error
@@ -172,11 +172,11 @@ func NewValidateError(msg string, items []ValidateErrItem) error {
 // ValidateErrItem describes one invalid parameter.
 type ValidateErrItem struct {
 	// ParamName is the parameter name.
-	ParamName string      `json:"paramName"`
+	ParamName string `json:"paramName"`
 	// Reason describes why it's invalid.
-	Reason    string      `json:"reason"`
+	Reason string `json:"reason"`
 	// Detail carries extra detail.
-	Detail    interface{} `json:"detail"`
+	Detail interface{} `json:"detail"`
 }
 
 // IsErrCode checks whether err has the given business code.

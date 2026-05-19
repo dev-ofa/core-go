@@ -16,6 +16,9 @@ type UpdatesResult struct {
 
 // UpdateLockAndAudit updates audit fields and returns previous update info if present.
 func UpdateLockAndAudit[T any](ctx context.Context, doc T, opt *RepoOpt) (*UpdatesResult, error) {
+	if opt == nil {
+		opt = &RepoOpt{}
+	}
 	var originalUpdated time.Time
 	var originalRawUpdated any
 	if ur, ok := interface{}(doc).(UpdateAuditor); ok {

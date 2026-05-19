@@ -22,7 +22,7 @@ type SortAble struct {
 // SortPair is a parsed sort field and direction.
 type SortPair struct {
 	// Field is the sortable field.
-	Field        string
+	Field string
 	// IsDescending indicates descending order.
 	IsDescending bool
 }

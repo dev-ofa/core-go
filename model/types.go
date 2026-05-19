@@ -61,10 +61,12 @@ type Pager struct {
 func (p *Pager) GetPageInfo() (pageSize, pageNumber int, pageToken string) {
 	return p.PageSize, p.PageNum, p.PageToken
 }
+
 // SetPageNumber updates the page number.
 func (p *Pager) SetPageNumber(pageNumber int) {
 	p.PageNum = pageNumber
 }
+
 // InitialDefaultVal sets default paging values when empty.
 func (p *Pager) InitialDefaultVal() {
 	if p.PageSize == 0 {
@@ -75,7 +77,7 @@ func (p *Pager) InitialDefaultVal() {
 // PagedResult wraps paginated rows and total count.
 type PagedResult[T any] struct {
 	// Rows is the data slice.
-	Rows       []T `json:"rows"`
+	Rows []T `json:"rows"`
 	// TotalCount is the total number of rows.
 	TotalCount int `json:"total_count"`
 }
@@ -181,15 +183,15 @@ func CtxMergeRepoOpt(ctx context.Context, merge *RepoOpt) *RepoOpt {
 // RepoOpt carries repository behavior flags.
 type RepoOpt struct {
 	// DeployIsolation controls deployment isolation scope.
-	DeployIsolation  DeployIsolation
+	DeployIsolation DeployIsolation
 	// DataIsolation controls data isolation scope.
-	DataIsolation    DataIsolation
+	DataIsolation DataIsolation
 	// UpdateRunContext controls audit update timing.
 	UpdateRunContext UpdateRunContext
 	// TryFixSyncDelay controls sync delay fix strategy.
-	TryFixSyncDelay  FixedStrategy
+	TryFixSyncDelay FixedStrategy
 	// SoftDelete controls soft delete behavior.
-	SoftDelete       SoftDelete
+	SoftDelete SoftDelete
 }
 
 // FixedStrategy defines the sync delay fix strategy.
@@ -197,7 +199,7 @@ type FixedStrategy string
 
 const (
 	// FixedStrategyNone disables fix behavior.
-	FixedStrategyNone    FixedStrategy = "none"
+	FixedStrategyNone FixedStrategy = "none"
 	// FixedStrategyBackoff uses backoff to fix sync delay.
 	FixedStrategyBackoff FixedStrategy = "backoff"
 )
@@ -209,7 +211,7 @@ const (
 	// UpdateRunContextAtCreating applies updates only at creation.
 	UpdateRunContextAtCreating UpdateRunContext = "at-creating"
 	// UpdateRunContextAlways applies updates on every update.
-	UpdateRunContextAlways     UpdateRunContext = "always"
+	UpdateRunContextAlways UpdateRunContext = "always"
 )
 
 // DeployIsolation defines deployment isolation levels.
@@ -217,11 +219,11 @@ type DeployIsolation string
 
 const (
 	// DeployIsolationNone disables deployment isolation.
-	DeployIsolationNone    DeployIsolation = "none"
+	DeployIsolationNone DeployIsolation = "none"
 	// DeployIsolationCluster isolates by cluster.
 	DeployIsolationCluster DeployIsolation = "cluster"
 	// DeployIsolationEnv isolates by environment.
-	DeployIsolationEnv     DeployIsolation = "env"
+	DeployIsolationEnv DeployIsolation = "env"
 )
 
 // DataIsolation defines data isolation levels.
@@ -229,13 +231,13 @@ type DataIsolation string
 
 const (
 	// DataIsolationNone disables data isolation.
-	DataIsolationNone   DataIsolation = "none"
+	DataIsolationNone DataIsolation = "none"
 	// DataIsolationTenant isolates by tenant.
 	DataIsolationTenant DataIsolation = "tenant"
 	// DataIsolationUser isolates by user.
-	DataIsolationUser   DataIsolation = "user"
+	DataIsolationUser DataIsolation = "user"
 	// DataIsolationApp isolates by app.
-	DataIsolationApp    DataIsolation = "app"
+	DataIsolationApp DataIsolation = "app"
 )
 
 // SoftDelete defines soft delete behavior.
@@ -243,7 +245,7 @@ type SoftDelete string
 
 const (
 	// SoftDeleteEnable enables soft delete by default.
-	SoftDeleteEnable  SoftDelete = ""
+	SoftDeleteEnable SoftDelete = ""
 	// SoftDeleteDisable disables soft delete.
 	SoftDeleteDisable SoftDelete = "disable"
 )

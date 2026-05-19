@@ -4,6 +4,7 @@
 - config：配置加载、脱敏摘要与哈希、严格校验
 - pass：上下文传递 trace、request、operator、tenant、app 信息
 - trace/logging：带 trace/request 的统一日志接口
+- httpx：带 trace 透传、超时预算、有限重试与可插拔服务发现的 HTTP client
 - model：通用审计字段与上下文注入
 - dkit：分布式原语核心抽象、雪花 ID、分布式锁执行辅助
 
@@ -20,10 +21,11 @@ type AppConfig struct {
 	} `yaml:"db"`
 }
 
-cfg, meta, err := config.Load[AppConfig](config.Options{
-	RequiredKeys:  []string{"db.uri"},
-	SensitiveKeys: []string{"db.uri"},
-})
+opts := config.NewOptions()
+opts.RequiredKeys = []string{"db.uri"}
+opts.SensitiveKeys = []string{"db.uri"}
+
+cfg, meta, err := config.Load[AppConfig](opts)
 _ = cfg
 _ = meta
 _ = err
@@ -52,6 +54,32 @@ ctx = pass.CtxSetRequestID(ctx, "req-1")
 
 logging.CtxInfof(ctx, "hello %s", "world")
 logging.Infof("system %s", "ready")
+```
+
+### httpx
+```go
+type UserResp struct {
+	Name string `json:"name"`
+}
+
+ctx := context.Background()
+ctx = pass.CtxSetTraceID(ctx, "8f14e45fceea167a5a36dedd4bea2543")
+ctx = pass.CtxSetOperator(ctx, "user-1")
+ctx = pass.CtxSetTenantID(ctx, "tenant-1")
+ctx = pass.CtxSetAppID(ctx, "app-1")
+
+var resp UserResp
+err := httpx.Get("http://inventory.prod/api/v1/users/me",
+	httpx.Context(ctx),
+	httpx.JsonResp(&resp),
+	httpx.RespWrapper(httpx.NewCommonWrapper()),
+	httpx.Service(httpx.ServiceOptions{
+		EnableDiscovery: true,
+		Namespace:       "prod",
+	}),
+).Do()
+_ = resp
+_ = err
 ```
 
 ### model

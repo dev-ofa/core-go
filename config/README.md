@@ -7,13 +7,15 @@
 
 ## 加载来源与优先级
 1. 默认配置文件
-2. 环境对应配置文件（ENV=dev -> config.dev.yaml）
-3. 环境变量
-4. 命令行参数
+2. 环境变量
+3. 环境对应配置文件（ENV=dev -> config.dev.yaml）
+4. 本地覆盖文件（config.local.yaml）
+5. 命令行参数
 
 ## 默认路径与命名
-- 默认文件：configs/config.default.yaml
+- 默认文件：configs/config.yaml
 - 环境配置：configs/config.{env}.yaml
+- 本地覆盖：configs/config.local.yaml
 - 部署环境变量：ENV（可通过 DeployEnvKey 修改）
 - 环境变量：APP.GROUP.KEY
 - 命令行参数：--group.key=value
@@ -52,6 +54,12 @@ _ = err
 ENV=dev
 ```
 默认读取 configs/config.dev.yaml，不存在则忽略。
+
+### 本地覆盖文件
+```bash
+configs/config.local.yaml
+```
+存在时会自动读取，并在环境配置文件之后、命令行参数之前叠加。
 
 ### 敏感配置来源校验
 ```go
