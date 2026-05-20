@@ -78,9 +78,9 @@ func RawReq(contentType string, body []byte) AgentOp {
 // ReaderReq sends the provided reader as the request body.
 func ReaderReq(contentType string, body io.Reader) AgentOp {
 	var (
-		once     sync.Once
-		bodyBuf  []byte
-		bodyErr  error
+		once    sync.Once
+		bodyBuf []byte
+		bodyErr error
 	)
 	return AgentOpFunc(func(agent *Agent) error {
 		agent.reqPreHandlers = append(agent.reqPreHandlers, ReqPreHandlerFunc(func(req *http.Request) (*http.Request, error) {

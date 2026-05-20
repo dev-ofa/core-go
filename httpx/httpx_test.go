@@ -490,6 +490,38 @@ func TestRawAndHybridResponseHandlers(t *testing.T) {
 		require.Equal(t, "raw-response", string(body))
 	})
 
+	t.Run("成功响应不预读 body", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{},
+				Body:       &trackingReadCloser{r: strings.NewReader("stream-response")},
+				Request:    req,
+			}, nil
+		})}
+
+		var body string
+		handler := RespHandlerFunc(func(resp *http.Response, respWrapper Wrapper) error {
+			trackingBody, ok := resp.Body.(*trackingReadCloser)
+			require.True(t, ok)
+			require.Zero(t, trackingBody.reads)
+			bs, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return err
+			}
+			body = string(bs)
+			return nil
+		})
+		err := Get("http://example.test", Client(client), AgentOpFunc(func(a *Agent) error {
+			a.respHandler = handler
+			return nil
+		})).Do()
+
+		require.NoError(t, err)
+		require.Equal(t, "stream-response", body)
+	})
+
 	t.Run("HybridResp 按 predicate 选择 handler", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -539,6 +571,158 @@ func TestRawAndHybridResponseHandlers(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, firstCalls)
 		require.Zero(t, secondCalls)
+	})
+}
+
+func TestDoStream(t *testing.T) {
+	t.Run("返回未关闭的成功响应体并由调用方关闭", func(t *testing.T) {
+		trackingBody := &trackingReadCloser{r: strings.NewReader("stream-response")}
+		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{"Content-Type": []string{"text/plain"}},
+				Body:       trackingBody,
+				Request:    req,
+			}, nil
+		})}
+
+		resp, err := Get("http://example.test", Client(client), TimeoutQuota(time.Second)).DoStream()
+		require.NoError(t, err)
+		require.Equal(t, "text/plain", resp.Header.Get("Content-Type"))
+		require.Zero(t, trackingBody.reads)
+		require.Zero(t, trackingBody.closes)
+
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, "stream-response", string(body))
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, 1, trackingBody.closes)
+	})
+
+	t.Run("复用状态码重试逻辑", func(t *testing.T) {
+		attempts := 0
+		failedBody := &trackingReadCloser{r: strings.NewReader("temporary")}
+		successBody := &trackingReadCloser{r: strings.NewReader("ok")}
+		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			attempts++
+			if attempts == 1 {
+				return &http.Response{
+					StatusCode: http.StatusInternalServerError,
+					Status:     "500 Internal Server Error",
+					Header:     http.Header{},
+					Body:       failedBody,
+					Request:    req,
+				}, nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{},
+				Body:       successBody,
+				Request:    req,
+			}, nil
+		})}
+
+		resp, err := Get("http://example.test",
+			Client(client),
+			Retry(&RetryOpt{Attempts: 2, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}),
+		).DoStream()
+		require.NoError(t, err)
+		require.Equal(t, 2, attempts)
+		require.Equal(t, 1, failedBody.closes)
+		require.Zero(t, successBody.closes)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, "ok", string(body))
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, 1, successBody.closes)
+	})
+
+	t.Run("非预期状态码关闭错误响应体", func(t *testing.T) {
+		trackingBody := &trackingReadCloser{r: strings.NewReader("teapot")}
+		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusTeapot,
+				Status:     "418 I'm a teapot",
+				Header:     http.Header{},
+				Body:       trackingBody,
+				Request:    req,
+			}, nil
+		})}
+
+		resp, err := Get("http://example.test", Client(client)).DoStream()
+		require.Nil(t, resp)
+		require.Error(t, err)
+		var callErr *CallError
+		require.ErrorAs(t, err, &callErr)
+		require.Equal(t, http.StatusTeapot, callErr.StatusCode)
+		var statusErr *HTTPStatusError
+		require.ErrorAs(t, err, &statusErr)
+		require.Equal(t, "teapot", string(statusErr.Body))
+		require.Equal(t, 1, trackingBody.closes)
+		require.Greater(t, trackingBody.reads, 0)
+	})
+
+	t.Run("关闭成功响应体会释放内部 timeout context", func(t *testing.T) {
+		var reqCtx context.Context
+		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			reqCtx = req.Context()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{},
+				Body:       &trackingReadCloser{r: strings.NewReader("stream-response")},
+				Request:    req,
+			}, nil
+		})}
+
+		resp, err := Get("http://example.test", Client(client), TimeoutQuota(time.Second)).DoStream()
+		require.NoError(t, err)
+		require.NotNil(t, reqCtx)
+		select {
+		case <-reqCtx.Done():
+			t.Fatal("request context should stay active before response body close")
+		default:
+		}
+
+		require.NoError(t, resp.Body.Close())
+		select {
+		case <-reqCtx.Done():
+		case <-time.After(time.Second):
+			t.Fatal("request context should be canceled after response body close")
+		}
+	})
+
+	t.Run("不执行响应 handler 和 wrapper", func(t *testing.T) {
+		trackingBody := &trackingReadCloser{r: strings.NewReader(`{"ok":true}`)}
+		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       trackingBody,
+				Request:    req,
+			}, nil
+		})}
+		wrapper := &countingWrapper{}
+		var decoded map[string]bool
+
+		resp, err := Get("http://example.test",
+			Client(client),
+			JSONResp(&decoded),
+			RespWrapper(wrapper),
+		).DoStream()
+		require.NoError(t, err)
+		require.Empty(t, decoded)
+		require.Zero(t, wrapper.setDataCalls)
+		require.Zero(t, wrapper.validateCalls)
+		require.Zero(t, trackingBody.reads)
+
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, `{"ok":true}`, string(body))
+		require.NoError(t, resp.Body.Close())
 	})
 }
 
@@ -593,10 +777,42 @@ func (e errReadCloser) Close() error {
 	return nil
 }
 
+type trackingReadCloser struct {
+	r      io.Reader
+	reads  int
+	closes int
+}
+
+func (t *trackingReadCloser) Read(p []byte) (int, error) {
+	t.reads++
+	return t.r.Read(p)
+}
+
+func (t *trackingReadCloser) Close() error {
+	t.closes++
+	return nil
+}
+
 type valueWrapper struct{}
 
 func (valueWrapper) SetData(ret any) {}
 
 func (valueWrapper) Validate() error {
+	return nil
+}
+
+type countingWrapper struct {
+	setDataCalls   int
+	validateCalls  int
+	underlyingData any
+}
+
+func (w *countingWrapper) SetData(ret any) {
+	w.setDataCalls++
+	w.underlyingData = ret
+}
+
+func (w *countingWrapper) Validate() error {
+	w.validateCalls++
 	return nil
 }

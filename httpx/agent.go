@@ -1,7 +1,6 @@
 package httpx
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -97,11 +96,31 @@ func (a *Agent) Do() error {
 	if a.cancel != nil {
 		defer a.cancel()
 	}
-	if a.retryOpt == nil {
-		_, err := a.doHTTP()
-		return err
+	_, err := a.executeHTTP(executeHandle)
+	return err
+}
+
+// DoStream executes the HTTP call and returns a successful response stream.
+// The caller must close resp.Body. Response handlers and wrappers are not used.
+func (a *Agent) DoStream() (*http.Response, error) {
+	if err := a.init(); err != nil {
+		if a.cancel != nil {
+			a.cancel()
+		}
+		return nil, err
 	}
-	return a.retryDoHTTP()
+	resp, err := a.executeHTTP(executeStream)
+	if err != nil {
+		if a.cancel != nil {
+			a.cancel()
+		}
+		return nil, err
+	}
+	if a.cancel != nil {
+		resp.Body = cancelOnCloseReadCloser{ReadCloser: resp.Body, cancel: a.cancel}
+		a.cancel = nil
+	}
+	return resp, nil
 }
 
 func (a *Agent) init() error {
@@ -148,9 +167,9 @@ func (a *Agent) prepareRequest() (*http.Request, string, error) {
 		return nil, "", fmt.Errorf("new request failed: %w", err)
 	}
 	for _, h := range a.reqPreHandlers {
-		newReq, err := h.PreHandleRequest(req)
-		if err != nil {
-			return nil, "", err
+		newReq, handleErr := h.PreHandleRequest(req)
+		if handleErr != nil {
+			return nil, "", handleErr
 		}
 		if newReq != nil {
 			req = newReq
@@ -175,7 +194,22 @@ func (a *Agent) prepareRequest() (*http.Request, string, error) {
 	return req, requestID, nil
 }
 
-func (a *Agent) retryDoHTTP() error {
+type executeMode int
+
+const (
+	executeHandle executeMode = iota
+	executeStream
+)
+
+func (a *Agent) executeHTTP(mode executeMode) (*http.Response, error) {
+	if a.retryOpt == nil {
+		_, resp, err := a.doHTTP(mode)
+		return resp, err
+	}
+	return a.retryDoHTTP(mode)
+}
+
+func (a *Agent) retryDoHTTP(mode executeMode) (*http.Response, error) {
 	attempts := a.retryOpt.Attempts
 	if attempts <= 0 {
 		attempts = defaultRetryAttempts
@@ -185,27 +219,27 @@ func (a *Agent) retryDoHTTP() error {
 	}
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		result, err := a.doHTTP()
+		result, resp, err := a.doHTTP(mode)
 		if err == nil {
-			return nil
+			return resp, nil
 		}
 		lastErr = err
 		if attempt == attempts || !a.shouldRetry(err, result) {
-			return err
+			return nil, err
 		}
 		delay := a.retryDelay(attempt)
 		if deadline, ok := a.ctx.Deadline(); ok && time.Until(deadline) <= delay {
-			return lastErr
+			return nil, lastErr
 		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-a.ctx.Done():
 			timer.Stop()
-			return a.ctx.Err()
+			return nil, a.ctx.Err()
 		case <-timer.C:
 		}
 	}
-	return lastErr
+	return nil, lastErr
 }
 
 type attemptResult struct {
@@ -213,10 +247,10 @@ type attemptResult struct {
 	requestID  string
 }
 
-func (a *Agent) doHTTP() (*attemptResult, error) {
+func (a *Agent) doHTTP(mode executeMode) (*attemptResult, *http.Response, error) {
 	req, requestID, err := a.prepareRequest()
 	if err != nil {
-		return &attemptResult{requestID: requestID}, err
+		return &attemptResult{requestID: requestID}, nil, err
 	}
 	start := time.Now()
 	logging.CtxInfof(a.ctx, "httpx request start method=%s path=%s", req.Method, req.URL.Path)
@@ -224,34 +258,33 @@ func (a *Agent) doHTTP() (*attemptResult, error) {
 	if err != nil {
 		wrapped := &CallError{Method: req.Method, URL: req.URL.String(), RequestID: requestID, Err: fmt.Errorf("request do failed: %w", err)}
 		a.logEnd(req, 0, start, wrapped)
-		return &attemptResult{requestID: requestID}, wrapped
+		return &attemptResult{requestID: requestID}, nil, wrapped
 	}
-	defer resp.Body.Close()
 
-	body, readErr := io.ReadAll(resp.Body)
-	resp.Body = io.NopCloser(bytes.NewReader(body))
 	result := &attemptResult{statusCode: resp.StatusCode, requestID: requestID}
 	if !a.isInExpectedStatusCodes(resp.StatusCode) {
+		body, readErr := io.ReadAll(resp.Body)
 		statusErr := newHTTPStatusError(a.expectedStatusCodes, resp, body, readErr)
 		wrapped := &CallError{Method: req.Method, URL: req.URL.String(), RequestID: requestID, StatusCode: resp.StatusCode, Err: statusErr}
 		a.logEnd(req, resp.StatusCode, start, wrapped)
-		return result, wrapped
+		_ = resp.Body.Close()
+		return result, nil, wrapped
 	}
-	if readErr != nil {
-		wrapped := &CallError{Method: req.Method, URL: req.URL.String(), RequestID: requestID, StatusCode: resp.StatusCode, Err: fmt.Errorf("read body failed: %w", readErr)}
-		a.logEnd(req, resp.StatusCode, start, wrapped)
-		return result, wrapped
+	if mode == executeStream {
+		a.logEnd(req, resp.StatusCode, start, nil)
+		return result, resp, nil
 	}
+	defer resp.Body.Close()
 	if a.respHandler != nil {
 		if err := a.respHandler.HandleResponse(resp, a.respWrapper); err != nil {
 			appErr := &applicationError{err: err}
 			wrapped := &CallError{Method: req.Method, URL: req.URL.String(), RequestID: requestID, StatusCode: resp.StatusCode, Err: appErr}
 			a.logEnd(req, resp.StatusCode, start, wrapped)
-			return result, wrapped
+			return result, nil, wrapped
 		}
 	}
 	a.logEnd(req, resp.StatusCode, start, nil)
-	return result, nil
+	return result, nil, nil
 }
 
 func (a *Agent) logEnd(req *http.Request, statusCode int, start time.Time, err error) {
@@ -454,4 +487,15 @@ func (e *applicationError) Error() string {
 
 func (e *applicationError) Unwrap() error {
 	return e.err
+}
+
+type cancelOnCloseReadCloser struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c cancelOnCloseReadCloser) Close() error {
+	err := c.ReadCloser.Close()
+	c.cancel()
+	return err
 }
