@@ -53,7 +53,8 @@ http:
 	}
 
 	t.Setenv("ENV", "dev")
-	t.Setenv("APP.HTTP.PORT", "9090")
+	t.Setenv("APP__HTTP__PORT", "9090")
+	t.Setenv("APP__DB__URI", "mongodb://env-user:env-pass@localhost:27017/db")
 
 	opts := NewOptions()
 	opts.DefaultConfigPath = defaultPath
@@ -97,10 +98,12 @@ db:
 	}
 
 	t.Setenv("ENV", "prod")
-	t.Setenv("APP.HTTP.PORT", "9090")
+	t.Setenv("APP__HTTP__PORT", "9090")
+	t.Setenv("APP__DB__URI", "mongodb://env-user:env-pass@localhost:27017/db")
 
 	opts := NewOptions()
 	opts.DefaultConfigPath = defaultPath
+	opts.SensitiveKeys = []string{}
 	opts.RequiredKeys = []string{"db.uri"}
 	cfg, meta, err := Load[testConfig](opts)
 	if err != nil {
@@ -149,6 +152,7 @@ logging:
 
 	opts := NewOptions()
 	opts.DefaultConfigPath = defaultPath
+	opts.SensitiveKeys = []string{}
 	opts.RequiredKeys = []string{"db.uri"}
 	cfg, meta, err := Load[testConfig](opts)
 	if err != nil {
@@ -168,7 +172,7 @@ logging:
 	}
 }
 
-func TestLocalOverridesEnvFileButFlagsStillWin(t *testing.T) {
+func TestEnvOverridesFilesButFlagsStillWin(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "configs")
 	defaultPath := filepath.Join(configDir, "config.yaml")
@@ -210,6 +214,8 @@ logging:
 	}
 
 	t.Setenv("ENV", "dev")
+	t.Setenv("APP__DB__URI", "mongodb://env-user:env-pass@localhost:27017/db")
+	t.Setenv("APP__LOGGING__LEVEL", "ERROR")
 
 	opts := NewOptions()
 	opts.DefaultConfigPath = defaultPath
@@ -222,14 +228,14 @@ logging:
 	if cfg.HTTP.Port != 5050 {
 		t.Fatalf("port want 5050 got %d", cfg.HTTP.Port)
 	}
-	if cfg.Logging.Level != "DEBUG" {
-		t.Fatalf("level want DEBUG got %s", cfg.Logging.Level)
+	if cfg.Logging.Level != "ERROR" {
+		t.Fatalf("level want ERROR got %s", cfg.Logging.Level)
 	}
-	if len(meta.Sources) != 4 {
-		t.Fatalf("sources want 4 got %v", meta.Sources)
+	if len(meta.Sources) != 5 {
+		t.Fatalf("sources want 5 got %v", meta.Sources)
 	}
-	if meta.Sources[0] != "default" || meta.Sources[1] != "env-file" || meta.Sources[2] != "local" || meta.Sources[3] != "flags" {
-		t.Fatalf("sources want [default env-file local flags] got %v", meta.Sources)
+	if meta.Sources[0] != "default" || meta.Sources[1] != "env-file" || meta.Sources[2] != "local" || meta.Sources[3] != "env" || meta.Sources[4] != "flags" {
+		t.Fatalf("sources want [default env-file local env flags] got %v", meta.Sources)
 	}
 }
 
@@ -289,5 +295,49 @@ db:
 	_, _, err := Load[testConfig](opts)
 	if err == nil {
 		t.Fatalf("expected sensitive placeholder source error")
+	}
+}
+
+func TestSensitivePlaceholderRejectedFromEnv(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	defaultPath := filepath.Join(configDir, "config.yaml")
+
+	defaultContent := `
+db:
+  uri: ""
+`
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+		t.Fatalf("write default: %v", err)
+	}
+
+	t.Setenv("APP__DB__URI", "******")
+
+	opts := NewOptions()
+	opts.DefaultConfigPath = defaultPath
+	opts.RequiredKeys = []string{"db.uri"}
+	_, _, err := Load[testConfig](opts)
+	if err == nil {
+		t.Fatalf("expected sensitive placeholder error")
+	}
+}
+
+func TestEnvToMapIgnoresInvalidEnvNames(t *testing.T) {
+	t.Setenv("APPTEST__HTTP__PORT", "8080")
+	t.Setenv("APPTEST__db__uri", "sqlite://invalid")
+	t.Setenv("APPTEST____BROKEN", "invalid")
+
+	got := envToMap("APPTEST", "__")
+	if port, ok := got["http"].(map[string]any)["port"]; !ok || port != "8080" {
+		t.Fatalf("valid env missing: %v", got)
+	}
+	if _, ok := got["db"]; ok {
+		t.Fatalf("lowercase env name should be ignored: %v", got)
+	}
+	if _, ok := got[""]; ok {
+		t.Fatalf("empty env path node should be ignored: %v", got)
 	}
 }

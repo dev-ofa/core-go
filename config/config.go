@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Options defines the load order, naming rules, and validation hooks.
+// Options defines source precedence, naming rules, and validation hooks.
 type Options struct {
 	// DefaultConfigPath is the default config file path.
 	DefaultConfigPath string
@@ -44,7 +44,7 @@ type Options struct {
 
 // Meta reports load sources, hash, and masked summary.
 type Meta struct {
-	// Sources lists the load sources in order.
+	// Sources lists the sources that participated in final config calculation.
 	Sources []string
 	// Hash is the stable hash of merged config.
 	Hash string
@@ -52,7 +52,7 @@ type Meta struct {
 	Summary map[string]any
 }
 
-// Load merges config from default, env, env-file, local, and flags, then validates and decodes.
+// Load merges config from default, env-file, local, env, and optional flags, then validates and decodes.
 func Load[T any](opts Options) (T, Meta, error) {
 	var zero T
 	opts = withDefaults(opts)
@@ -67,13 +67,6 @@ func Load[T any](opts Options) (T, Meta, error) {
 		merged = mergeMaps(merged, m)
 		recordSources(sourceMap, m, "default", "")
 		sources = append(sources, "default")
-	}
-
-	envMap := envToMap(opts.EnvPrefix, opts.EnvSeparator)
-	if len(envMap) > 0 {
-		merged = mergeMaps(merged, applyTypedOverrides(merged, envMap))
-		recordSources(sourceMap, envMap, "env", "")
-		sources = append(sources, "env")
 	}
 
 	if env := strings.TrimSpace(os.Getenv(opts.DeployEnvKey)); env != "" {
@@ -94,6 +87,13 @@ func Load[T any](opts Options) (T, Meta, error) {
 		merged = mergeMaps(merged, m)
 		recordSources(sourceMap, m, "local", "")
 		sources = append(sources, "local")
+	}
+
+	envMap := envToMap(opts.EnvPrefix, opts.EnvSeparator)
+	if len(envMap) > 0 {
+		merged = mergeMaps(merged, applyTypedOverrides(merged, envMap))
+		recordSources(sourceMap, envMap, "env", "")
+		sources = append(sources, "env")
 	}
 
 	flagMap := argsToMap(opts.Args)
@@ -119,7 +119,7 @@ func Load[T any](opts Options) (T, Meta, error) {
 	summary := maskMap(merged, opts.SensitiveKeys)
 
 	if opts.LogEnabled {
-		logging.Infof("config loaded from %s", strings.Join(sources, ","))
+		logging.Infof("config sources: %s", strings.Join(sources, ","))
 		if b, err := json.Marshal(summary); err == nil {
 			logging.Infof("config_hash=%s summary=%s", hash, string(b))
 		} else {
@@ -168,7 +168,7 @@ func withDefaults(opts Options) Options {
 		opts.EnvPrefix = "APP"
 	}
 	if opts.EnvSeparator == "" {
-		opts.EnvSeparator = "."
+		opts.EnvSeparator = "__"
 	}
 	if opts.DeployEnvKey == "" {
 		opts.DeployEnvKey = "ENV"
@@ -201,7 +201,7 @@ func loadConfigIfExists(path string) (map[string]any, bool, error) {
 
 func envToMap(prefix, sep string) map[string]any {
 	res := map[string]any{}
-	if prefix == "" {
+	if prefix == "" || sep == "" {
 		return res
 	}
 	p := prefix + sep
@@ -215,17 +215,48 @@ func envToMap(prefix, sep string) map[string]any {
 		if !strings.HasPrefix(key, p) {
 			continue
 		}
+		if !isValidEnvName(key) {
+			continue
+		}
 		path := strings.TrimPrefix(key, p)
 		if path == "" {
 			continue
 		}
 		nodes := strings.Split(path, sep)
+		if hasEmptyNode(nodes) {
+			continue
+		}
 		for i := range nodes {
 			nodes[i] = strings.ToLower(nodes[i])
 		}
 		setPath(res, nodes, val)
 	}
 	return res
+}
+
+func isValidEnvName(name string) bool {
+	for _, r := range name {
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		if r == '_' {
+			continue
+		}
+		return false
+	}
+	return name != ""
+}
+
+func hasEmptyNode(nodes []string) bool {
+	for _, node := range nodes {
+		if node == "" {
+			return true
+		}
+	}
+	return false
 }
 
 func argsToMap(args []string) map[string]any {
@@ -549,9 +580,9 @@ func validateSensitiveSources(m map[string]any, sources map[string]string, sensi
 			continue
 		}
 		if sources[path] == "env" {
-			continue
-		}
-		if s, ok := v.(string); ok && isPlaceholder(s) && sources[path] == "default" {
+			if s, ok := v.(string); ok && isPlaceholder(s) {
+				return fmt.Errorf("sensitive config %s must not be a placeholder", path)
+			}
 			continue
 		}
 		return fmt.Errorf("sensitive config %s must come from env", path)
