@@ -1,14 +1,14 @@
 # core-go
 
-## 模块概览
-- config：配置加载、脱敏摘要与哈希、严格校验
-- pass：上下文传递 trace、request、operator、tenant、app 信息
-- trace/logging：带 trace/request 的统一日志接口
-- httpx：带 trace 透传、超时预算、有限重试与可插拔服务发现的 HTTP client
-- model：通用审计字段与上下文注入
-- dkit：分布式原语核心抽象、雪花 ID、分布式锁执行辅助
+## Modules
+- `config`: configuration loading, redacted summaries and hashes, strict validation
+- `pass`: trace, request, operator, tenant, and app context propagation
+- `trace/logging`: unified logging interfaces carrying trace and request context
+- `httpx`: HTTP client with trace propagation, timeout budgets, bounded retries, and pluggable service discovery
+- `model`: shared audit fields and context-driven audit injection
+- `dkit`: distributed primitive abstractions, snowflake IDs, and distributed mutex helpers
 
-## 快速使用
+## Quick Start
 
 ### config
 ```go
@@ -103,19 +103,22 @@ _, _ = model.CtxDeleteAudit(ctx, &o)
 
 ### dkit
 ```go
-var backend dkit.Atomic // 由 Mongo/MySQL/Redis 等后端适配实现注入。
+var backend dkit.Atomic // Injected by a Mongo/MySQL/Redis backend adapter.
 
 kit, err := dkit.NewDefaultKitWithContext(context.Background(), backend)
 if err != nil {
 	return err
 }
-// 应用启动时也可以注册 provider-owned 默认实例，供大量基础设施调用点复用。
+// A provider-owned default instance can also be registered during application startup
+// for reuse across shared call sites.
 dkit.SetDefaultKit(kit)
 defer dkit.ResetDefaultKit()
 
 id := dkit.DefaultKit().GetSnowflakeID()
-// dkit 使用固定 Sonyflake epoch，让新生成的十进制 ID 上线即进入 19 位区间，避免未来跨 18/19 位边界。
-// model.SnowflakeID 在 Go/API 链路中是字符串类型，在数据库中按数值存储；若项目可自由选择 ID 格式，优先考虑固定宽度字符串 ID。
+// dkit uses a fixed Sonyflake epoch so newly generated decimal IDs start in the
+// 19-digit range immediately and avoid a future 18/19-digit boundary change.
+// model.SnowflakeID is a string in Go/API paths and stored numerically in the
+// database. If the project can choose its own ID format, prefer fixed-width string IDs.
 
 err = kit.MutexCtxDo(context.Background(), "daily-worker", func(ctx context.Context) error {
 	// do work while holding the distributed mutex
@@ -149,9 +152,9 @@ if err != nil {
 _ = kit
 ```
 
-其中 `dkitmongo` 是 `github.com/dev-ofa/core-go/dkit/mongo`。
+`dkitmongo` refers to `github.com/dev-ofa/core-go/dkit/mongo`.
 
-Mongo adapter 的集成测试默认跳过；设置 `OFA_DKIT_MONGO_URI` 后可运行：
+Mongo adapter integration tests are skipped by default. Run them with `OFA_DKIT_MONGO_URI` set:
 
 ```bash
 OFA_DKIT_MONGO_URI='mongodb://localhost:27017' go test ./dkit/mongo

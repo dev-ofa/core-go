@@ -49,7 +49,7 @@ func TestDoInjectsTraceAndTimeoutHeaders(t *testing.T) {
 }
 
 func TestRequestBuildersAndHeaders(t *testing.T) {
-	t.Run("GET 表单参数会追加到 query 且保留自定义 header", func(t *testing.T) {
+	t.Run("GET form params are appended to the query and preserve custom headers", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			require.Equal(t, "custom-value", r.Header.Get("X-Custom"))
 			require.Equal(t, []string{"base", "extra"}, r.URL.Query()["key"])
@@ -68,7 +68,7 @@ func TestRequestBuildersAndHeaders(t *testing.T) {
 		require.True(t, resp["ok"])
 	})
 
-	t.Run("POST 支持 text/json/raw/reader 请求体", func(t *testing.T) {
+	t.Run("POST supports text/json/raw/reader request bodies", func(t *testing.T) {
 		tests := []struct {
 			name         string
 			op           AgentOp
@@ -130,7 +130,7 @@ func TestRequestBuildersAndHeaders(t *testing.T) {
 		}
 	})
 
-	t.Run("ReaderReq 在可重试传输错误后会重放完整 body", func(t *testing.T) {
+	t.Run("ReaderReq replays the full body after a retryable transport error", func(t *testing.T) {
 		attempts := 0
 		client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			attempts++
@@ -164,7 +164,7 @@ func TestRequestBuildersAndHeaders(t *testing.T) {
 }
 
 func TestHTTPStatusHandling(t *testing.T) {
-	t.Run("非预期状态码返回可识别的上游 HTTP 错误", func(t *testing.T) {
+	t.Run("unexpected status codes return a recognizable upstream HTTP error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "teapot", http.StatusTeapot)
 		}))
@@ -190,7 +190,7 @@ func TestHTTPStatusHandling(t *testing.T) {
 		require.Contains(t, string(httpErr.Body), "teapot")
 	})
 
-	t.Run("ExpectedStatusCodes 允许指定非 200 状态码", func(t *testing.T) {
+	t.Run("ExpectedStatusCodes allows non-200 status codes", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"created":true}`))
@@ -206,7 +206,7 @@ func TestHTTPStatusHandling(t *testing.T) {
 }
 
 func TestWrapperValidationRetry(t *testing.T) {
-	t.Run("wrapper 业务失败默认不重试", func(t *testing.T) {
+	t.Run("wrapper business failures are not retried by default", func(t *testing.T) {
 		attempts := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			attempts++
@@ -232,7 +232,7 @@ func TestWrapperValidationRetry(t *testing.T) {
 		require.Same(t, wrapperErr.Data, datax.ErrorData(err))
 	})
 
-	t.Run("显式标记 retryable 后可在剩余预算内重试 wrapper 业务失败", func(t *testing.T) {
+	t.Run("explicit retryable wrappers retry business failures within the remaining budget", func(t *testing.T) {
 		attempts := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			attempts++
@@ -266,7 +266,7 @@ func TestWrapperValidationRetry(t *testing.T) {
 		require.Equal(t, "core-go", resp.Name)
 	})
 
-	t.Run("兼容 RetryAppError 后可重试 wrapper 业务失败", func(t *testing.T) {
+	t.Run("RetryAppError-compatible wrappers retry business failures", func(t *testing.T) {
 		attempts := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			attempts++
@@ -396,7 +396,7 @@ func TestServiceDiscoveryRewritesURL(t *testing.T) {
 }
 
 func TestServiceDiscoveryFailureAndOverride(t *testing.T) {
-	t.Run("启用服务发现但未配置 resolver 时快速失败", func(t *testing.T) {
+	t.Run("fails fast when discovery is enabled without a resolver", func(t *testing.T) {
 		err := Get("http://inventory.prod/api",
 			Service(ServiceOptions{EnableDiscovery: true}),
 		).Do()
@@ -405,7 +405,7 @@ func TestServiceDiscoveryFailureAndOverride(t *testing.T) {
 		require.Equal(t, ErrCodeHTTPServiceDiscoveryDisabled, datax.CodeOf(err))
 	})
 
-	t.Run("无健康实例时返回 ErrNoHealthyInstance", func(t *testing.T) {
+	t.Run("returns ErrNoHealthyInstance when no instance is healthy", func(t *testing.T) {
 		resolver := ResolverFunc(func(ctx context.Context, req ResolveRequest) (*ResolveResponse, error) {
 			return &ResolveResponse{
 				ServiceName: req.ServiceName,
@@ -426,7 +426,7 @@ func TestServiceDiscoveryFailureAndOverride(t *testing.T) {
 		require.Equal(t, ErrCodeHTTPNoHealthyInstance, datax.CodeOf(err))
 	})
 
-	t.Run("resolver 未知错误包装为 UpstreamError", func(t *testing.T) {
+	t.Run("wraps unknown resolver errors as UpstreamError", func(t *testing.T) {
 		root := errors.New("resolver boom")
 		err := Get("http://inventory.prod/api",
 			Service(ServiceOptions{
@@ -445,7 +445,7 @@ func TestServiceDiscoveryFailureAndOverride(t *testing.T) {
 		require.Equal(t, datax.ErrCodeUnexpected, datax.CodeOf(err))
 	})
 
-	t.Run("picker 未知错误包装为 UpstreamError", func(t *testing.T) {
+	t.Run("wraps unknown picker errors as UpstreamError", func(t *testing.T) {
 		root := errors.New("picker boom")
 		resolver := ResolverFunc(func(ctx context.Context, req ResolveRequest) (*ResolveResponse, error) {
 			return &ResolveResponse{
@@ -474,7 +474,7 @@ func TestServiceDiscoveryFailureAndOverride(t *testing.T) {
 		require.Equal(t, datax.ErrCodeUnexpected, datax.CodeOf(err))
 	})
 
-	t.Run("InstanceOverride 绕过 resolver 并保留原始 Host", func(t *testing.T) {
+	t.Run("InstanceOverride bypasses the resolver and preserves the original Host", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			require.Equal(t, "inventory.prod", r.Host)
 			_, _ = w.Write([]byte(`{"ok":true}`))
@@ -557,21 +557,21 @@ func TestTimeoutBudgetExhausted(t *testing.T) {
 }
 
 func TestInvalidOptionsAndResponseReadError(t *testing.T) {
-	t.Run("JsonResp 要求目标必须为指针", func(t *testing.T) {
+	t.Run("JsonResp requires the target to be a pointer", func(t *testing.T) {
 		err := Get("http://example.invalid", JsonResp(struct{}{})).Do()
 
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "result payload should be ptr")
 	})
 
-	t.Run("RespWrapper 要求 wrapper 必须为指针", func(t *testing.T) {
+	t.Run("RespWrapper requires the wrapper to be a pointer", func(t *testing.T) {
 		err := Get("http://example.invalid", RespWrapper(valueWrapper{})).Do()
 
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "response wrapper should be ptr")
 	})
 
-	t.Run("读取响应 body 失败时返回应用错误", func(t *testing.T) {
+	t.Run("returns an application error when reading the response body fails", func(t *testing.T) {
 		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -591,7 +591,7 @@ func TestInvalidOptionsAndResponseReadError(t *testing.T) {
 }
 
 func TestRawAndHybridResponseHandlers(t *testing.T) {
-	t.Run("RawResp 拷贝响应和响应体", func(t *testing.T) {
+	t.Run("RawResp copies the response and body", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Resp", "ok")
 			_, _ = w.Write([]byte("raw-response"))
@@ -608,7 +608,7 @@ func TestRawAndHybridResponseHandlers(t *testing.T) {
 		require.Equal(t, "raw-response", string(body))
 	})
 
-	t.Run("成功响应不预读 body", func(t *testing.T) {
+	t.Run("does not pre-read the body for successful responses", func(t *testing.T) {
 		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -640,7 +640,7 @@ func TestRawAndHybridResponseHandlers(t *testing.T) {
 		require.Equal(t, "stream-response", body)
 	})
 
-	t.Run("HybridResp 按 predicate 选择 handler", func(t *testing.T) {
+	t.Run("HybridResp selects a handler by predicate", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"ok":true}`))
@@ -659,7 +659,7 @@ func TestRawAndHybridResponseHandlers(t *testing.T) {
 		require.True(t, resp["ok"])
 	})
 
-	t.Run("HybridResp 只执行首个命中 handler", func(t *testing.T) {
+	t.Run("HybridResp only runs the first matching handler", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"ok":true}`))
@@ -693,7 +693,7 @@ func TestRawAndHybridResponseHandlers(t *testing.T) {
 }
 
 func TestDoStream(t *testing.T) {
-	t.Run("返回未关闭的成功响应体并由调用方关闭", func(t *testing.T) {
+	t.Run("returns an open successful response body for the caller to close", func(t *testing.T) {
 		trackingBody := &trackingReadCloser{r: strings.NewReader("stream-response")}
 		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
@@ -718,7 +718,7 @@ func TestDoStream(t *testing.T) {
 		require.Equal(t, 1, trackingBody.closes)
 	})
 
-	t.Run("流式响应的失败状态码不默认重试", func(t *testing.T) {
+	t.Run("does not retry failing status codes for streamed responses by default", func(t *testing.T) {
 		attempts := 0
 		failedBody := &trackingReadCloser{r: strings.NewReader("temporary")}
 		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -742,7 +742,7 @@ func TestDoStream(t *testing.T) {
 		require.Equal(t, 1, failedBody.closes)
 	})
 
-	t.Run("非预期状态码关闭错误响应体", func(t *testing.T) {
+	t.Run("closes the error response body for unexpected status codes", func(t *testing.T) {
 		trackingBody := &trackingReadCloser{r: strings.NewReader("teapot")}
 		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
@@ -773,7 +773,7 @@ func TestDoStream(t *testing.T) {
 		require.Greater(t, trackingBody.reads, 0)
 	})
 
-	t.Run("关闭成功响应体会释放内部 timeout context", func(t *testing.T) {
+	t.Run("closing a successful response body releases the internal timeout context", func(t *testing.T) {
 		var reqCtx context.Context
 		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			reqCtx = req.Context()
@@ -803,7 +803,7 @@ func TestDoStream(t *testing.T) {
 		}
 	})
 
-	t.Run("不执行响应 handler 和 wrapper", func(t *testing.T) {
+	t.Run("does not run response handlers or wrappers", func(t *testing.T) {
 		trackingBody := &trackingReadCloser{r: strings.NewReader(`{"ok":true}`)}
 		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{

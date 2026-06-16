@@ -98,7 +98,7 @@ type Repo[P IDType, T EntityConstraint[P]] interface {
 	Upsert(ctx context.Context, doc T) (T, error)
 	Patch(ctx context.Context, doc T) error
 	Delete(ctx context.Context, doc T) error
-	// BatchCreate 请注意该接口不保证事务性
+	// BatchCreate does not guarantee transactional behavior.
 	BatchCreate(ctx context.Context, docs []T) error
 	BatchUpdate(ctx context.Context, docs []T) error
 	BatchDelete(ctx context.Context, docs []T) (int, error)

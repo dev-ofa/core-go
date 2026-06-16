@@ -584,7 +584,8 @@ func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (r
 		return
 	}
 
-	// FixedStrategyBackoff 的情况下会针对 not found自动进行2次退避重试，尝试修正主从延迟带来的不一致性
+	// FixedStrategyBackoff retries not-found results twice with backoff to reduce
+	// inconsistencies caused by replica lag.
 	err = retry.Do(func() error {
 		if err := l.cls.FindOne(ctx, filter).Decode(&ret); err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-// - 对于预期内or不需要告警的错误，Body中业务错误码请使用 >= 20000 以上的数值，如 20100, 20300
-// - 对于非预期or需要告警的业务错误，Body中业务错误码请使用 < 20000 的数值，推荐 >= 10000，避免与RFC和字节基础设施中的某些StatusCode定义冲突
+// - For expected errors or errors that do not require alerts, use body error codes >= 20000, such as 20100 or 20300.
+// - For unexpected errors or errors that should trigger alerts, use body error codes < 20000, preferably >= 10000, to avoid conflicts with RFC-defined or other common status codes.
 const (
 	// ErrCodeUnexpected is the default unexpected error code.
 	ErrCodeUnexpected = 10000

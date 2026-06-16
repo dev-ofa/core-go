@@ -17,7 +17,7 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	t.Run("合法标识符提取标准参数和私有 scheme", func(t *testing.T) {
+	t.Run("extracts standard params and custom scheme from a valid identifier", func(t *testing.T) {
 		id, err := Parse("ofa-res?auth_id=tenant&media_type=image/png&filename=a.png&x_tag=v#aws_s3://bucket/path/a.png")
 
 		require.NoError(t, err)
@@ -29,7 +29,7 @@ func TestParse(t *testing.T) {
 		require.Equal(t, "v", id.Params["x_tag"])
 	})
 
-	t.Run("保留 source_uri 内的 query", func(t *testing.T) {
+	t.Run("preserves the query inside source_uri", func(t *testing.T) {
 		id, err := Parse("ofa-res#https://example.com/a.png?version=1")
 
 		require.NoError(t, err)
@@ -46,7 +46,7 @@ func TestParse(t *testing.T) {
 		"ofa-res#HTTPS://example.com/a.png",
 	}
 	for _, raw := range tests {
-		t.Run("非法输入 "+raw, func(t *testing.T) {
+		t.Run("rejects invalid input "+raw, func(t *testing.T) {
 			_, err := Parse(raw)
 
 			require.Error(t, err)
@@ -152,7 +152,7 @@ func TestHTTPHandlerOpenDownloadRetryAndHeaders(t *testing.T) {
 }
 
 func TestHTTPHandlerLimitsAndRedirects(t *testing.T) {
-	t.Run("读取超过大小限制时失败", func(t *testing.T) {
+	t.Run("fails when the response exceeds the size limit", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.(http.Flusher).Flush()
 			_, _ = w.Write([]byte("too-large"))
@@ -167,7 +167,7 @@ func TestHTTPHandlerLimitsAndRedirects(t *testing.T) {
 		require.NoError(t, stream.Body.Close())
 	})
 
-	t.Run("限制重定向次数", func(t *testing.T) {
+	t.Run("enforces the redirect limit", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/next", http.StatusFound)
 		}))
@@ -178,7 +178,7 @@ func TestHTTPHandlerLimitsAndRedirects(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("可禁用 http 默认 handler", func(t *testing.T) {
+	t.Run("allows disabling the default http handler", func(t *testing.T) {
 		manager := NewManager(WithHTTPEnabled(false))
 
 		_, err := manager.Open(context.Background(), "ofa-res#http://example.com/a.png")

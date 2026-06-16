@@ -102,19 +102,20 @@ func (ct *CollectionLibTests) TestCreateUpdateAndGet() {
 	_, err = lib.Create(cx, &testEntity{})
 	ct.Require().Error(err)
 
-	// 只测试部分字段即可，核心在于验证DB访问
+	// Verifying a subset of fields is enough here; the main goal is to validate DB access.
 	ct.Equal("vinci", getBody.CreatedBy)
 	ct.Equal("vinci", getBody.UpdatedBy)
 	ct.Equal("tenant", getBody.TenantID)
 	ct.Equal("app", getBody.AppID)
 
-	// 开启修复选项(主从不一致场景较难模拟，保持正常功能即可)
+	// Enable the repair option. Replica-lag inconsistencies are hard to reproduce here,
+	// so this test only verifies the normal path.
 	lib.opt.TryFixSyncDelay = model.FixedStrategyBackoff
 
 	// Update
 	getRet, err := lib.Get(cx, "1")
 	ct.Require().NoError(err)
-	// 验证不变的情况下不会误触发乐观锁
+	// Verify that an unchanged document does not trigger optimistic locking.
 	_, err = lib.Update(cx, getRet)
 	ct.Require().NoError(err)
 	getRet.StrField = "new_str"

@@ -1,35 +1,35 @@
 # Config
 
-## 行为声明
-- 不支持热更新
-- 需要重启生效
-- 内部基于 viper 进行配置解析
+## Behavior
+- Hot reload is not supported
+- Process restart is required for config changes to take effect
+- Config parsing is implemented on top of `viper`
 
-## 加载来源与优先级
-1. 默认配置文件
-2. 环境对应配置文件（ENV=dev -> config.dev.yaml）
-3. 本地覆盖文件（config.local.yaml）
-4. 环境变量
+## Sources and Precedence
+1. Default config file
+2. Environment-specific config file (`ENV=dev` -> `config.dev.yaml`)
+3. Local override file (`config.local.yaml`)
+4. Environment variables
 
-命令行参数是 `core-go` 的实现扩展，不属于标准配置来源。当前实现支持 `--group.key=value`，其优先级高于环境变量，仅建议用于本地调试、临时诊断和测试场景。
+Command-line flags are a `core-go` implementation extension and are not part of the standard config sources. The current implementation supports `--group.key=value`, with precedence above environment variables. Use it only for local debugging, temporary diagnostics, and tests.
 
-命令行参数不得用于传入密钥、密码、Token 等敏感配置；共享环境中的敏感配置必须来自环境变量或安全存储。本地开发允许通过 `config.local.yaml` 提供敏感配置。
+Command-line flags must not be used for secrets, passwords, tokens, or other sensitive config. In shared environments, sensitive config must come from environment variables or secure storage. Local development may use `config.local.yaml` for sensitive values.
 
-## 默认路径与命名
-- 默认文件：configs/config.yaml
-- 环境配置：configs/config.{env}.yaml
-- 本地覆盖：configs/config.local.yaml
-- 部署环境变量：ENV（可通过 DeployEnvKey 修改）
-- 环境变量：APP__GROUP__KEY
-- 命令行参数扩展：--group.key=value
+## Default Paths and Naming
+- Default file: `configs/config.yaml`
+- Environment file: `configs/config.{env}.yaml`
+- Local override: `configs/config.local.yaml`
+- Deployment environment variable: `ENV` (customizable via `DeployEnvKey`)
+- Environment variable pattern: `APP__GROUP__KEY`
+- Command-line flag extension: `--group.key=value`
 
-`DefaultConfigPath` 表示默认基础配置文件路径。显式传入该路径时，当前实现会以该文件作为基础配置来源，并继续在该文件所在目录查找 `config.{env}.yaml` 和 `config.local.yaml` 参与最终配置计算。
+`DefaultConfigPath` is the path to the base config file. When passed explicitly, the current implementation uses that file as the base source and continues loading `config.{env}.yaml` and `config.local.yaml` from the same directory when present.
 
-环境变量名必须使用大写 ASCII 字母、数字与下划线，并使用 `__` 表示层级；不符合该规则的环境变量会被忽略。
+Environment variable names must use uppercase ASCII letters, digits, and underscores, with `__` as the hierarchy separator. Variables that do not follow this rule are ignored.
 
-## 示例
+## Examples
 
-### 覆盖优先级
+### Override Precedence
 ```bash
 ENV=dev \
 APP__HTTP__PORT=8080 \
@@ -56,25 +56,25 @@ _ = meta
 _ = err
 ```
 
-### 环境配置文件
+### Environment-Specific Config File
 ```bash
 ENV=dev
 ```
-默认读取 configs/config.dev.yaml，不存在则忽略。
+By default, `configs/config.dev.yaml` is loaded when present.
 
-### 本地覆盖文件
+### Local Override File
 ```bash
 configs/config.local.yaml
 ```
-存在时会参与最终配置计算，优先级高于环境配置文件、低于环境变量和命令行参数。
+When present, it participates in the final config result. Its precedence is higher than the environment-specific file and lower than environment variables and command-line flags.
 
-### 命令行参数扩展
+### Command-Line Flag Extension
 ```bash
 your-app --http.port=9090
 ```
-命令行参数参与最终配置计算，优先级高于环境变量。该能力不属于标准配置来源，不应作为标准部署配置方式，也不得用于传入敏感配置。启动日志会在 `config sources` 中记录 `flags`。
+Command-line flags participate in the final config result with precedence above environment variables. This capability is not a standard config source, should not be used as a normal deployment mechanism, and must not be used for sensitive config. Startup logs record this source as `flags` in `config sources`.
 
-### 敏感配置来源校验
+### Sensitive Config Source Validation
 ```go
 opts := config.NewOptions()
 opts.RequiredKeys = []string{"db.uri"}
@@ -84,9 +84,9 @@ _ = cfg
 _ = err
 ```
 
-敏感配置在“有实际值”时必须来自环境变量或 `config.local.yaml`；基础配置文件与环境差异配置文件中的敏感值会被拒绝。空字符串仍视为未设置，便于在基础配置文件中显式留空并等待运行环境或本地覆盖文件注入。
+When a sensitive config key has a concrete value, that value must come from an environment variable or `config.local.yaml`. Sensitive values from the base config file or environment-specific config file are rejected. Empty strings are still treated as unset so the base config can leave them blank and let the runtime environment or local override provide the actual value.
 
-## 使用示例
+## Usage Example
 ```go
 type AppConfig struct {
 	App struct {

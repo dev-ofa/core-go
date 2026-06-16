@@ -266,7 +266,7 @@ sequenceDiagram
         Manager-->>Caller: 返回 Stream 或 OpenError
     else Download
         Manager->>FS: 创建临时文件
-        Manager->>FS: 写入字节流并执行大小校验；如显式开启则执行摘要校验
+        Manager->>FS: Write the byte stream and enforce the size check; run digest validation when explicitly enabled
         Manager->>FS: 原子替换 dstPath
         Manager-->>Caller: 返回 nil 或 DownloadError
     end
