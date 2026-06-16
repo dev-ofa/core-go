@@ -10,6 +10,7 @@ import (
 
 	"github.com/dev-ofa/core-go/dkit"
 	"github.com/dev-ofa/core-go/trace/logging"
+	"github.com/shiningrush/goext/runx/eventx"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -130,13 +131,11 @@ func (impl *ElectionImpl) setLeaderFlag(isLeader bool) {
 	if old == isLeader {
 		return
 	}
-	if impl.opt.OnLeaderChanged != nil {
-		impl.opt.OnLeaderChanged(dkit.LeaderChangedEvent{
-			IsLeader:     isLeader,
-			NodeKey:      impl.opt.NodeKey,
-			IsolationKey: impl.opt.IsolationKey,
-		})
-	}
+	eventx.PublishSync(context.Background(), dkit.LeaderChangedEvent{
+		IsLeader:     isLeader,
+		NodeKey:      impl.opt.NodeKey,
+		IsolationKey: impl.opt.IsolationKey,
+	})
 }
 
 func (impl *ElectionImpl) markReady() {

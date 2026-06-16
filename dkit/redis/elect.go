@@ -12,6 +12,7 @@ import (
 	"github.com/dev-ofa/core-go/dkit"
 	"github.com/dev-ofa/core-go/trace/logging"
 	goredis "github.com/redis/go-redis/v9"
+	"github.com/shiningrush/goext/runx/eventx"
 )
 
 const (
@@ -110,13 +111,11 @@ func (impl *ElectionImpl) setLeaderFlag(isLeader bool) {
 	if old == isLeader {
 		return
 	}
-	if impl.opt.OnLeaderChanged != nil {
-		impl.opt.OnLeaderChanged(dkit.LeaderChangedEvent{
-			IsLeader:     isLeader,
-			NodeKey:      impl.opt.NodeKey,
-			IsolationKey: impl.opt.IsolationKey,
-		})
-	}
+	eventx.PublishSync(context.Background(), dkit.LeaderChangedEvent{
+		IsLeader:     isLeader,
+		NodeKey:      impl.opt.NodeKey,
+		IsolationKey: impl.opt.IsolationKey,
+	})
 }
 
 func (impl *ElectionImpl) markReady() {

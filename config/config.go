@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dev-ofa/core-go/model/datax"
 	"github.com/dev-ofa/core-go/trace/logging"
 	"github.com/spf13/viper"
 )
@@ -30,7 +31,7 @@ type Options struct {
 	Args []string
 	// RequiredKeys lists dot-path keys that must exist.
 	RequiredKeys []string
-	// SensitiveKeys lists dot-path keywords that must only come from env.
+	// SensitiveKeys lists dot-path keywords that must only come from env when set.
 	SensitiveKeys []string
 	// Strict enables strict unmarshal with unknown field rejection.
 	Strict bool
@@ -427,7 +428,7 @@ func validateRequired(m map[string]any, keys []string) error {
 		nodes := strings.Split(strings.ToLower(key), ".")
 		v, ok := getPath(m, nodes)
 		if !ok || isEmpty(v) {
-			return fmt.Errorf("missing %s", key)
+			return datax.NewValidationError(fmt.Sprintf("missing %s", key), nil, nil)
 		}
 	}
 	return nil
@@ -579,13 +580,16 @@ func validateSensitiveSources(m map[string]any, sources map[string]string, sensi
 		if !isSensitivePath(path, sensitive) {
 			continue
 		}
-		if sources[path] == "env" {
+		if isEmpty(v) {
+			continue
+		}
+		if sources[path] == "env" || sources[path] == "local" {
 			if s, ok := v.(string); ok && isPlaceholder(s) {
-				return fmt.Errorf("sensitive config %s must not be a placeholder", path)
+				return datax.NewValidationError(fmt.Sprintf("sensitive config %s must not be a placeholder", path), nil, nil)
 			}
 			continue
 		}
-		return fmt.Errorf("sensitive config %s must come from env", path)
+		return datax.NewValidationError(fmt.Sprintf("sensitive config %s must come from env or config.local.yaml", path), nil, nil)
 	}
 	return nil
 }

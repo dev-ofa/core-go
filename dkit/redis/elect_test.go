@@ -8,6 +8,7 @@ import (
 
 	"github.com/dev-ofa/core-go/dkit"
 	goredis "github.com/redis/go-redis/v9"
+	"github.com/shiningrush/goext/runx/eventx"
 )
 
 var redisFaultWorkers sync.Map
@@ -193,7 +194,7 @@ func TestElectionImpl_InvalidOptions(t *testing.T) {
 	}
 }
 
-func TestAtomic_EnableElectionCallback(t *testing.T) {
+func TestAtomic_EnableElectionEvent(t *testing.T) {
 	_, cli := testRedisClient(t)
 	atomicBackend, err := NewRedisAtomic(Client(cli), KeyPrefix(testPrefix(t)))
 	if err != nil {
@@ -205,15 +206,23 @@ func TestAtomic_EnableElectionCallback(t *testing.T) {
 		}
 	}()
 
+	eventx.SetEventBus(eventx.NewInMemoryEventBus())
+	t.Cleanup(func() {
+		eventx.SetEventBus(eventx.NewInMemoryEventBus())
+	})
+
 	events := make(chan dkit.LeaderChangedEvent, 2)
+	if err := dkit.SubscribeLeaderChanged(func(event dkit.LeaderChangedEvent) {
+		events <- event
+	}); err != nil {
+		t.Fatalf("subscribe leader changed: %v", err)
+	}
+
 	err = atomicBackend.EnableElection(&dkit.ElectionOption{
 		NodeKey:       "node-1",
 		KeepHeartbeat: true,
 		UnhealthyTime: 200 * time.Millisecond,
 		Timeout:       time.Second,
-		OnLeaderChanged: func(event dkit.LeaderChangedEvent) {
-			events <- event
-		},
 	})
 	if err != nil {
 		t.Fatalf("enable election: %v", err)

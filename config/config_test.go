@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/dev-ofa/core-go/model/datax"
 )
 
 type testConfig struct {
@@ -19,6 +21,14 @@ type testConfig struct {
 	Logging struct {
 		Level string `yaml:"level"`
 	} `yaml:"logging"`
+}
+
+type sensitiveOptionalConfig struct {
+	Auth struct {
+		Wechat struct {
+			MiniProgramSecret string `yaml:"mini_program_secret" mapstructure:"mini_program_secret"`
+		} `yaml:"wechat" mapstructure:"wechat"`
+	} `yaml:"auth" mapstructure:"auth"`
 }
 
 func TestLoadPrecedenceAndMasking(t *testing.T) {
@@ -262,9 +272,12 @@ http:
 	if err == nil {
 		t.Fatalf("expected missing error")
 	}
+	if got := datax.CodeOf(err); got != datax.ErrCodeValidate {
+		t.Fatalf("want validation error code got %d", got)
+	}
 }
 
-func TestSensitivePlaceholderOnlyAllowedFromDefault(t *testing.T) {
+func TestSensitivePlaceholderRejectedFromLocal(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "configs")
 	defaultPath := filepath.Join(configDir, "config.yaml")
@@ -293,9 +306,52 @@ db:
 	opts.DefaultConfigPath = defaultPath
 	opts.RequiredKeys = []string{"db.uri"}
 	_, _, err := Load[testConfig](opts)
-	if err == nil {
-		t.Fatalf("expected sensitive placeholder source error")
+        if err == nil {
+                t.Fatalf("expected sensitive placeholder error")
 	}
+	if got := datax.CodeOf(err); got != datax.ErrCodeValidate {
+		t.Fatalf("want validation error code got %d", got)
+	}
+}
+
+func TestSensitiveValueAllowedFromLocal(t *testing.T) {
+        dir := t.TempDir()
+        configDir := filepath.Join(dir, "configs")
+        defaultPath := filepath.Join(configDir, "config.yaml")
+        localPath := filepath.Join(configDir, "config.local.yaml")
+
+        defaultContent := `
+auth:
+  wechat:
+    mini_program_secret: ""
+`
+        localContent := `
+auth:
+  wechat:
+    mini_program_secret: "local-secret"
+`
+
+        if err := os.MkdirAll(configDir, 0700); err != nil {
+                t.Fatalf("mkdir: %v", err)
+        }
+        if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+                t.Fatalf("write default: %v", err)
+        }
+        if err := os.WriteFile(localPath, []byte(localContent), 0600); err != nil {
+                t.Fatalf("write local: %v", err)
+        }
+
+        opts := NewOptions()
+        opts.DefaultConfigPath = defaultPath
+        opts.SensitiveKeys = []string{"auth.wechat.mini_program_secret"}
+
+        cfg, _, err := Load[sensitiveOptionalConfig](opts)
+        if err != nil {
+                t.Fatalf("load: %v", err)
+        }
+        if cfg.Auth.Wechat.MiniProgramSecret != "local-secret" {
+                t.Fatalf("mini program secret want local-secret got %q", cfg.Auth.Wechat.MiniProgramSecret)
+        }
 }
 
 func TestSensitivePlaceholderRejectedFromEnv(t *testing.T) {
@@ -322,6 +378,71 @@ db:
 	_, _, err := Load[testConfig](opts)
 	if err == nil {
 		t.Fatalf("expected sensitive placeholder error")
+	}
+	if got := datax.CodeOf(err); got != datax.ErrCodeValidate {
+		t.Fatalf("want validation error code got %d", got)
+	}
+}
+
+func TestEmptySensitiveValueAllowedFromFile(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	defaultPath := filepath.Join(configDir, "config.yaml")
+
+	defaultContent := `
+auth:
+  wechat:
+    mini_program_secret: ""
+`
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+		t.Fatalf("write default: %v", err)
+	}
+
+	opts := NewOptions()
+	opts.DefaultConfigPath = defaultPath
+	opts.SensitiveKeys = []string{"auth.wechat.mini_program_secret"}
+
+	cfg, _, err := Load[sensitiveOptionalConfig](opts)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Auth.Wechat.MiniProgramSecret != "" {
+		t.Fatalf("mini program secret want empty got %q", cfg.Auth.Wechat.MiniProgramSecret)
+	}
+}
+
+func TestSensitiveValueInFileCanBeOverriddenByEnv(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	defaultPath := filepath.Join(configDir, "config.yaml")
+
+	defaultContent := `
+auth:
+  wechat:
+    mini_program_secret: "debug-secret"
+`
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+		t.Fatalf("write default: %v", err)
+	}
+
+	t.Setenv("APP__AUTH__WECHAT__MINI_PROGRAM_SECRET", "env-secret")
+
+	opts := NewOptions()
+	opts.DefaultConfigPath = defaultPath
+	opts.SensitiveKeys = []string{"auth.wechat.mini_program_secret"}
+
+	cfg, _, err := Load[sensitiveOptionalConfig](opts)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Auth.Wechat.MiniProgramSecret != "env-secret" {
+		t.Fatalf("mini program secret want env-secret got %q", cfg.Auth.Wechat.MiniProgramSecret)
 	}
 }
 

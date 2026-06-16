@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/dev-ofa/core-go/model/datax"
 )
 
 var (
@@ -60,14 +62,14 @@ func parseParams(meta string, raw string) (map[string]string, error) {
 	}
 	values, err := url.ParseQuery(strings.TrimPrefix(meta, "ofa-res?"))
 	if err != nil {
-		return nil, &ParseError{Raw: raw, Err: fmt.Errorf("parse params: %w", err)}
+		return nil, &ParseError{Raw: raw, Err: datax.NewValidationError("parse params", nil, err)}
 	}
 	for key, vals := range values {
 		if !paramNameRegexp.MatchString(key) {
-			return nil, &ParseError{Raw: raw, Err: fmt.Errorf("invalid param name %q", key)}
+			return nil, &ParseError{Raw: raw, Err: datax.NewValidationError(fmt.Sprintf("invalid param name %q", key), nil, nil)}
 		}
 		if len(vals) != 1 {
-			return nil, &ParseError{Raw: raw, Err: fmt.Errorf("duplicate param %q", key)}
+			return nil, &ParseError{Raw: raw, Err: datax.NewValidationError(fmt.Sprintf("duplicate param %q", key), nil, nil)}
 		}
 		params[key] = vals[0]
 	}
@@ -77,14 +79,14 @@ func parseParams(meta string, raw string) (map[string]string, error) {
 func sourceScheme(sourceURI string) (string, error) {
 	colon := strings.IndexByte(sourceURI, ':')
 	if colon <= 0 {
-		return "", fmt.Errorf("source_uri scheme is required")
+		return "", datax.NewValidationError("source_uri scheme is required", nil, nil)
 	}
 	scheme := sourceURI[:colon]
 	if !schemeRegexp.MatchString(scheme) {
-		return "", fmt.Errorf("invalid source_uri scheme %q", scheme)
+		return "", datax.NewValidationError(fmt.Sprintf("invalid source_uri scheme %q", scheme), nil, nil)
 	}
 	if strings.ToLower(scheme) != scheme {
-		return "", fmt.Errorf("source_uri scheme must be lowercase")
+		return "", datax.NewValidationError("source_uri scheme must be lowercase", nil, nil)
 	}
 	return scheme, nil
 }
@@ -93,11 +95,11 @@ func validateIdentifierParams(params map[string]string) error {
 	filename := params["filename"]
 	if filename != "" {
 		if strings.ContainsAny(filename, `/\`+"\x00") || strings.Contains(filename, "..") {
-			return fmt.Errorf("invalid filename")
+			return datax.NewValidationError("invalid filename", nil, nil)
 		}
 		for _, r := range filename {
 			if r < 0x20 || r == 0x7f {
-				return fmt.Errorf("invalid filename")
+				return datax.NewValidationError("invalid filename", nil, nil)
 			}
 		}
 	}
@@ -105,5 +107,5 @@ func validateIdentifierParams(params map[string]string) error {
 }
 
 func parseError(raw string, msg string) error {
-	return &ParseError{Raw: raw, Err: fmt.Errorf("%s", msg)}
+	return &ParseError{Raw: raw, Err: datax.NewValidationError(msg, nil, nil)}
 }

@@ -1,5 +1,11 @@
 package httpx
 
+import (
+	"fmt"
+
+	"github.com/dev-ofa/core-go/model/datax"
+)
+
 // CommonWrapper is a spec-compatible response wrapper with code/message/request_id/data.
 type CommonWrapper struct {
 	Code      int    `json:"code"`
@@ -30,18 +36,43 @@ func (c *CommonWrapper) Validate() error {
 			return nil
 		}
 	}
-	return &WrapperError{Code: c.Code, Message: c.Message, RequestID: c.RequestID, Data: c.Data}
+	wrapperErr := NewWrapperError(c.Code, c.Message, c.RequestID, c.Data)
+	if c.Data != nil {
+		return datax.WithErrorData(wrapperErr, c.Data)
+	}
+	return wrapperErr
 }
 
 // WrapperError describes an application wrapper validation failure.
 type WrapperError struct {
+	datax.CoreError
 	Code      int
 	Message   string
 	RequestID string
 	Data      any
 }
 
+// NewWrapperError returns a wrapper validation error with a stable application code.
+func NewWrapperError(code int, message string, requestID string, data any) *WrapperError {
+	if code == 0 {
+		code = ErrCodeHTTPWrapperDefault
+	}
+	if message == "" {
+		message = "httpx wrapper validate failed"
+	}
+	return &WrapperError{
+		CoreError: *datax.NewError(code, message, nil),
+		Code:      code,
+		Message:   message,
+		RequestID: requestID,
+		Data:      data,
+	}
+}
+
 // Error implements the error interface.
 func (e *WrapperError) Error() string {
-	return "httpx wrapper validate failed"
+	if e.RequestID != "" {
+		return fmt.Sprintf("httpx wrapper validate failed code=%d request_id=%s: %s", e.Code, e.RequestID, e.Message)
+	}
+	return fmt.Sprintf("httpx wrapper validate failed code=%d: %s", e.Code, e.Message)
 }

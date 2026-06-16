@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+
+	"github.com/dev-ofa/core-go/model/datax"
 )
 
 // Wrapper describes a standard application response wrapper.
@@ -131,7 +133,7 @@ func (h *JSONRespHandler) HandleResponse(resp *http.Response, respWrapper Wrappe
 // InitialAgent installs the JSON response handler.
 func (h *JSONRespHandler) InitialAgent(a *Agent) error {
 	if h.ret == nil || reflect.TypeOf(h.ret).Kind() != reflect.Ptr {
-		return fmt.Errorf("result payload should be ptr")
+		return datax.NewValidationError("result payload should be ptr", nil, nil)
 	}
 	a.respHandler = h
 	return nil

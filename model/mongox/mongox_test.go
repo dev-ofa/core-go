@@ -3,6 +3,7 @@ package mongox
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -176,10 +177,11 @@ func (ct *CollectionLibTests) TestSoftDelete() {
 	err = lib.Delete(cx, getSe)
 	ct.Require().NoError(err)
 	getSe, err = lib.Get(cx, "soft-test")
-	ct.Require().Equal(datax.ErrNotFound, err)
+	ct.Require().True(datax.IsErrCode(datax.ErrCodeNotFound, err))
+	ct.Require().Contains(err.Error(), "soft_test_cls/soft-test")
 	ct.Require().Nil(getSe)
 	_, err = lib.Update(cx, se)
-	ct.Require().Equal(datax.ErrNotFound, err)
+	ct.Require().True(datax.IsErrCode(datax.ErrCodeNotFound, err))
 
 	// disable
 	cx = model.SetCtxSoftDelete(cx, model.SoftDeleteDisable)
@@ -191,7 +193,7 @@ func (ct *CollectionLibTests) TestSoftDelete() {
 	err = lib.Delete(cx, getSe)
 	ct.Require().NoError(err)
 	getSe, err = lib.Get(cx, "soft-test")
-	ct.Require().Equal(datax.ErrNotFound, err)
+	ct.Require().True(datax.IsErrCode(datax.ErrCodeNotFound, err))
 	ct.Require().Nil(getSe)
 
 	// batch-delete
@@ -201,12 +203,12 @@ func (ct *CollectionLibTests) TestSoftDelete() {
 	_, err = lib.BatchDelete(cx, []*softTestEntity{se})
 	ct.Require().NoError(err)
 	_, err = lib.BatchDelete(cx, []*softTestEntity{se})
-	ct.Require().Equal(datax.ErrNotFound, err)
+	ct.Require().True(datax.IsErrCode(datax.ErrCodeNotFound, err))
 	cx = model.SetCtxSoftDelete(cx, model.SoftDeleteDisable)
 	_, err = lib.BatchDelete(cx, []*softTestEntity{se})
 	ct.Require().NoError(err)
 	_, err = lib.BatchDelete(cx, []*softTestEntity{se})
-	ct.Require().Equal(datax.ErrNotFound, err)
+	ct.Require().True(datax.IsErrCode(datax.ErrCodeNotFound, err))
 }
 
 type createError struct {
@@ -307,6 +309,65 @@ func (ct *CollectionLibTests) TestQuery() {
 	ct.Require().NoError(err)
 	ct.Equal(8, len(pageRet.Rows))
 	ct.Equal("4", pageRet.Rows[3].ID)
+}
+
+func TestFeedCursorHelpers(t *testing.T) {
+	lib := &CollectionLib[string, *testEntity]{idKey: "_id"}
+	cursorFilter, err := lib.buildFeedCursorFilter("_id", "id_1", true)
+	require.NoError(t, err)
+	merged := mergeFeedFilter(
+		bson.M{"created_by": "user_1"},
+		cursorFilter,
+	)
+
+	require.Equal(t, bson.M{
+		"$and": bson.A{
+			bson.M{"created_by": "user_1"},
+			bson.M{"_id": bson.M{"$lt": "id_1"}},
+		},
+	}, merged)
+	require.Equal(t, bson.M{"created_by": "user_1"}, mergeFeedFilter(bson.M{"created_by": "user_1"}, nil))
+	require.Equal(t, bson.M{"_id": bson.M{"$lt": "id_1"}}, mergeFeedFilter(nil, bson.M{"_id": bson.M{"$lt": "id_1"}}))
+	require.Equal(t, "_id", lib.normalizeFeedCursorField(""))
+	require.Equal(t, "_id", lib.normalizeFeedCursorField("id"))
+	require.Equal(t, "created_at", lib.normalizeFeedCursorField("created_at"))
+	require.Equal(t, -1, feedSortOrder(true))
+	require.Equal(t, 1, feedSortOrder(false))
+
+	intFieldFilter, err := lib.buildFeedCursorFilter("int_field", "42", false)
+	require.NoError(t, err)
+	require.Equal(t, bson.M{"int_field": bson.M{"$gt": 42}}, intFieldFilter)
+	token, err := lib.feedCursorToken(&testEntity{IntField: 42}, "int_field")
+	require.NoError(t, err)
+	require.Equal(t, "42", token)
+}
+
+func TestParseFeedTokenByType(t *testing.T) {
+	lib := &CollectionLib[string, *testEntity]{idKey: "_id"}
+
+	stringToken, err := parseFeedTokenByType("10", reflect.TypeOf(""))
+	require.NoError(t, err)
+	require.Equal(t, "10", stringToken)
+
+	intToken, err := parseFeedTokenByType("10", reflect.TypeOf(0))
+	require.NoError(t, err)
+	require.Equal(t, 10, intToken)
+
+	snowflakeToken, err := parseFeedTokenByType("623949464310157351", reflect.TypeOf(model.SnowflakeID("")))
+	require.NoError(t, err)
+	require.Equal(t, model.NewSnowflakeID(623949464310157351), snowflakeToken)
+
+	_, err = parseFeedTokenByType("bad", reflect.TypeOf(0))
+	require.Error(t, err)
+	require.Equal(t, datax.ErrCodeValidate, datax.CodeOf(err))
+
+	_, err = parseFeedTokenByType("bad", reflect.TypeOf(time.Time{}))
+	require.Error(t, err)
+	require.Equal(t, datax.ErrCodeValidate, datax.CodeOf(err))
+
+	_, err = lib.parseFeedCursorToken("missing_field", "bad")
+	require.Error(t, err)
+	require.Equal(t, datax.ErrCodeValidate, datax.CodeOf(err))
 }
 
 func (ct *CollectionLibTests) TestDataIsolation() {

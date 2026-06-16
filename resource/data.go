@@ -9,6 +9,8 @@ import (
 	"mime"
 	"net/url"
 	"strings"
+
+	"github.com/dev-ofa/core-go/model/datax"
 )
 
 type dataHandler struct {
@@ -25,7 +27,7 @@ func (h dataHandler) Open(_ context.Context, id Identifier) (*Stream, error) {
 		return nil, err
 	}
 	if id.MediaType != "" && mediaType != "" && !sameMediaType(id.MediaType, mediaType) {
-		return nil, fmt.Errorf("data media type %q does not match identifier media_type %q", mediaType, id.MediaType)
+		return nil, datax.NewValidationError(fmt.Sprintf("data media type %q does not match identifier media_type %q", mediaType, id.MediaType), nil, nil)
 	}
 	if h.maxBytes > 0 && int64(len(body)) > h.maxBytes {
 		return nil, ErrSizeLimitExceeded
@@ -47,11 +49,11 @@ func (h dataHandler) Upload(context.Context, UploadInput) (Identifier, error) {
 
 func parseDataURL(raw string) (string, []byte, error) {
 	if !strings.HasPrefix(raw, "data:") {
-		return "", nil, fmt.Errorf("invalid data URL")
+		return "", nil, datax.NewValidationError("invalid data URL", nil, nil)
 	}
 	payloadStart := strings.IndexByte(raw, ',')
 	if payloadStart < 0 {
-		return "", nil, fmt.Errorf("invalid data URL payload")
+		return "", nil, datax.NewValidationError("invalid data URL payload", nil, nil)
 	}
 	meta := raw[len("data:"):payloadStart]
 	payload := raw[payloadStart+1:]

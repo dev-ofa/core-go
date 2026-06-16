@@ -2,9 +2,9 @@ package model
 
 import (
 	"context"
-	"fmt"
 	"time"
 
+	"github.com/dev-ofa/core-go/model/datax"
 	"github.com/dev-ofa/core-go/pass"
 	"github.com/shiningrush/goext/timex"
 )
@@ -14,7 +14,7 @@ func CtxCreateAudit(ctx context.Context, entity any) error {
 	if cr, ok := entity.(CreateAuditor); ok {
 		u, ok := pass.CtxGetOperator(ctx)
 		if !ok {
-			return fmt.Errorf("there is no user in context")
+			return datax.NewValidationError("there is no user in context", nil, nil)
 		}
 		cr.SetCreator(u)
 	}
@@ -22,13 +22,13 @@ func CtxCreateAudit(ctx context.Context, entity any) error {
 	if tc, ok := entity.(TenantCarrier); ok {
 		tId, ok := pass.CtxGetTenantID(ctx)
 		if !ok {
-			return fmt.Errorf("there is no tenantid in context")
+			return datax.NewValidationError("there is no tenantid in context", nil, nil)
 		}
 		tc.SetTenantID(tId)
 
 		aId, ok := pass.CtxGetAppID(ctx)
 		if !ok {
-			return fmt.Errorf("there is no appid in context")
+			return datax.NewValidationError("there is no appid in context", nil, nil)
 		}
 		tc.SetAppID(aId)
 	}
@@ -41,7 +41,7 @@ func CtxUpdateAudit(ctx context.Context, entity any) error {
 	if uc, ok := entity.(UpdateAuditor); ok {
 		u, ok := pass.CtxGetOperator(ctx)
 		if !ok {
-			return fmt.Errorf("there is no user in context")
+			return datax.NewValidationError("there is no user in context", nil, nil)
 		}
 		uc.SetUpdater(u)
 	}
@@ -63,7 +63,7 @@ func CtxDeleteAudit(ctx context.Context, entity any) (bool, error) {
 	if uc, ok := entity.(DeleteAuditor); ok {
 		u, ok := pass.CtxGetOperator(ctx)
 		if !ok {
-			return false, fmt.Errorf("there is no user in context")
+			return false, datax.NewValidationError("there is no user in context", nil, nil)
 		}
 		uc.SetDeleter(u)
 		return true, nil
@@ -78,7 +78,7 @@ func CtxAudit(ctx context.Context, auditors []any) error {
 		if op, ok := v.(OperatorCarrier); ok {
 			u, ok := pass.CtxGetOperator(ctx)
 			if !ok {
-				return fmt.Errorf("there is no user in context")
+				return datax.NewValidationError("there is no user in context", nil, nil)
 			}
 			op.SetUser(u)
 		}
@@ -86,13 +86,13 @@ func CtxAudit(ctx context.Context, auditors []any) error {
 		if tc, ok := v.(TenantCarrier); ok {
 			tId, ok := pass.CtxGetTenantID(ctx)
 			if !ok {
-				return fmt.Errorf("there is no tenantid in context")
+				return datax.NewValidationError("there is no tenantid in context", nil, nil)
 			}
 			tc.SetTenantID(tId)
 
 			aId, ok := pass.CtxGetAppID(ctx)
 			if !ok {
-				return fmt.Errorf("there is no appid in context")
+				return datax.NewValidationError("there is no appid in context", nil, nil)
 			}
 			tc.SetAppID(aId)
 		}

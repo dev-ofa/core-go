@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dev-ofa/core-go/model/datax"
 )
 
 type fakeAtomic struct {
@@ -93,6 +95,9 @@ func TestNewDefaultKitWithContext(t *testing.T) {
 		if !errors.Is(err, ErrInvalidOption) {
 			t.Fatalf("want ErrInvalidOption got %v", err)
 		}
+		if datax.CodeOf(err) != ErrCodeDKitInvalidOption {
+			t.Fatalf("want invalid option code got %d", datax.CodeOf(err))
+		}
 	})
 
 	t.Run("allocator error is returned", func(t *testing.T) {
@@ -115,16 +120,36 @@ func TestNewDefaultKitWithContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("new kit: %v", err)
 		}
-		id, err := kit.NextIDString(context.Background())
-		if err != nil {
-			t.Fatalf("next id string: %v", err)
-		}
+		id := kit.GetIDString()
 		if id == "" {
 			t.Fatalf("id should not be empty")
 		}
 	})
 
-	t.Run("next id respects canceled context", func(t *testing.T) {
+	t.Run("generates snowflake id type", func(t *testing.T) {
+		kit, err := NewDefaultKitWithContext(context.Background(), &fakeAtomic{num: 1, mutex: &fakeMutex{}})
+		if err != nil {
+			t.Fatalf("new kit: %v", err)
+		}
+		id := kit.GetSnowflakeID()
+		if id == "" {
+			t.Fatalf("id should not be zero")
+		}
+		if len(id.String()) != 19 {
+			t.Fatalf("id should be 19 digits with the fixed snowflake epoch, got %s", id.String())
+		}
+		if kit.GetSnowflakeID() == "" {
+			t.Fatalf("panic helper id should not be zero")
+		}
+		if _, err := kit.NextID(context.Background()); err != nil {
+			t.Fatalf("compat next id: %v", err)
+		}
+		if id, err := kit.NextIDString(context.Background()); err != nil || strings.TrimSpace(id) == "" {
+			t.Fatalf("compat next id string got id=%q err=%v", id, err)
+		}
+	})
+
+	t.Run("compat next id respects canceled context", func(t *testing.T) {
 		kit, err := NewDefaultKitWithContext(context.Background(), &fakeAtomic{num: 1, mutex: &fakeMutex{}})
 		if err != nil {
 			t.Fatalf("new kit: %v", err)
@@ -136,6 +161,85 @@ func TestNewDefaultKitWithContext(t *testing.T) {
 			t.Fatalf("want context canceled got %v", err)
 		}
 	})
+}
+
+func TestDefaultKitLocator(t *testing.T) {
+	t.Cleanup(ResetDefaultKit)
+	ResetDefaultKit()
+
+	assertPanicIs(t, ErrDefaultKitNotConfigured, func() {
+		_ = DefaultKit()
+	})
+	assertPanicCodeIs(t, ErrCodeDKitDefaultKitNotConfigured, func() {
+		_ = DefaultKit()
+	})
+
+	kit, err := NewDefaultKit(&fakeAtomic{num: 1, mutex: &fakeMutex{}})
+	if err != nil {
+		t.Fatalf("new kit: %v", err)
+	}
+	SetDefaultKit(kit)
+
+	got := DefaultKit()
+	if got != kit {
+		t.Fatalf("default kit mismatch")
+	}
+	id := DefaultKit().GetIDString()
+	if strings.TrimSpace(id) == "" {
+		t.Fatalf("id should not be empty")
+	}
+
+	ResetDefaultKit()
+	assertPanicIs(t, ErrDefaultKitNotConfigured, func() {
+		_ = DefaultKit()
+	})
+}
+
+func TestInitDefaultKit(t *testing.T) {
+	t.Cleanup(ResetDefaultKit)
+	ResetDefaultKit()
+
+	kit, err := InitDefaultKit(context.Background(), &fakeAtomic{num: 1, mutex: &fakeMutex{}})
+	if err != nil {
+		t.Fatalf("init default kit: %v", err)
+	}
+	if got := DefaultKit(); got != kit {
+		t.Fatalf("default kit got %v", got)
+	}
+
+	allocErr := errors.New("allocate failed")
+	if _, err := InitDefaultKit(context.Background(), &fakeAtomic{numErr: allocErr}); !errors.Is(err, allocErr) {
+		t.Fatalf("want allocator error got %v", err)
+	}
+	if got := DefaultKit(); got != kit {
+		t.Fatalf("failed init should keep previous default, got %v", got)
+	}
+}
+
+func assertPanicIs(t *testing.T, target error, fn func()) {
+	t.Helper()
+	defer func() {
+		recovered := recover()
+		if !errors.Is(recovered.(error), target) {
+			t.Fatalf("want panic %v got %v", target, recovered)
+		}
+	}()
+	fn()
+}
+
+func assertPanicCodeIs(t *testing.T, code int, fn func()) {
+	t.Helper()
+	defer func() {
+		recovered := recover()
+		err, ok := recovered.(error)
+		if !ok {
+			t.Fatalf("want panic error got %v", recovered)
+		}
+		if datax.CodeOf(err) != code {
+			t.Fatalf("want panic code %d got %d", code, datax.CodeOf(err))
+		}
+	}()
+	fn()
 }
 
 func TestDefaultKitMutexCtxTryDo(t *testing.T) {

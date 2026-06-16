@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dev-ofa/core-go/model/datax"
 	"github.com/dev-ofa/core-go/pass"
 	"github.com/stretchr/testify/require"
 )
@@ -129,23 +130,28 @@ func TestRequestBuildersAndHeaders(t *testing.T) {
 		}
 	})
 
-	t.Run("ReaderReq 在重试时会重放完整 body", func(t *testing.T) {
+	t.Run("ReaderReq 在可重试传输错误后会重放完整 body", func(t *testing.T) {
 		attempts := 0
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			attempts++
 			body, err := io.ReadAll(r.Body)
 			require.NoError(t, err)
 			require.Equal(t, "reader-body", string(body))
 			if attempts == 1 {
-				http.Error(w, "temporary", http.StatusInternalServerError)
-				return
+				return nil, retryableNetError{"dial failed"}
 			}
-			_, _ = w.Write([]byte(`{"ok":true}`))
-		}))
-		defer server.Close()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+				Request:    r,
+			}, nil
+		})}
 
 		var resp map[string]bool
-		err := Post(server.URL,
+		err := Post("http://example.test",
+			Client(client),
 			ReaderReq("application/custom", strings.NewReader("reader-body")),
 			JsonResp(&resp),
 			Retry(&RetryOpt{Attempts: 2, Idempotent: true, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}),
@@ -158,7 +164,7 @@ func TestRequestBuildersAndHeaders(t *testing.T) {
 }
 
 func TestHTTPStatusHandling(t *testing.T) {
-	t.Run("非预期状态码返回可识别的 HTTPStatusError", func(t *testing.T) {
+	t.Run("非预期状态码返回可识别的上游 HTTP 错误", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "teapot", http.StatusTeapot)
 		}))
@@ -170,10 +176,18 @@ func TestHTTPStatusHandling(t *testing.T) {
 		var callErr *CallError
 		require.ErrorAs(t, err, &callErr)
 		require.Equal(t, http.StatusTeapot, callErr.StatusCode)
+		var upstreamErr *datax.UpstreamError
+		require.ErrorAs(t, err, &upstreamErr)
+		require.Equal(t, http.MethodGet, upstreamErr.Operation)
+		require.Equal(t, server.URL, upstreamErr.Target)
+		require.Equal(t, datax.ErrCodeUnexpected, datax.CodeOf(err))
 		var statusErr *HTTPStatusError
 		require.ErrorAs(t, err, &statusErr)
 		require.Equal(t, http.StatusTeapot, statusErr.StatusCode)
-		require.Contains(t, string(statusErr.Body), "teapot")
+		var httpErr *datax.ErrHttp
+		require.ErrorAs(t, err, &httpErr)
+		require.Equal(t, http.StatusTeapot, httpErr.StatusCode)
+		require.Contains(t, string(httpErr.Body), "teapot")
 	})
 
 	t.Run("ExpectedStatusCodes 允许指定非 200 状态码", func(t *testing.T) {
@@ -191,7 +205,7 @@ func TestHTTPStatusHandling(t *testing.T) {
 	})
 }
 
-func TestWrapperValidationAndRetryAppError(t *testing.T) {
+func TestWrapperValidationRetry(t *testing.T) {
 	t.Run("wrapper 业务失败默认不重试", func(t *testing.T) {
 		attempts := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -214,9 +228,11 @@ func TestWrapperValidationAndRetryAppError(t *testing.T) {
 		var wrapperErr *WrapperError
 		require.ErrorAs(t, err, &wrapperErr)
 		require.Equal(t, 30001, wrapperErr.Code)
+		require.Equal(t, 30001, datax.CodeOf(err))
+		require.Same(t, wrapperErr.Data, datax.ErrorData(err))
 	})
 
-	t.Run("开启 RetryAppError 后可在剩余预算内重试 wrapper 业务失败", func(t *testing.T) {
+	t.Run("显式标记 retryable 后可在剩余预算内重试 wrapper 业务失败", func(t *testing.T) {
 		attempts := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			attempts++
@@ -225,6 +241,39 @@ func TestWrapperValidationAndRetryAppError(t *testing.T) {
 					"code":    30001,
 					"message": "temporary business failed",
 					"data":    map[string]any{"name": "bad"},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":    0,
+				"message": "ok",
+				"data":    map[string]any{"name": "core-go"},
+			})
+		}))
+		defer server.Close()
+
+		var resp struct {
+			Name string `json:"name"`
+		}
+		err := Get(server.URL,
+			JsonResp(&resp),
+			RespWrapper(&retryableWrapper{}),
+			Retry(&RetryOpt{Attempts: 2, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}),
+		).Do()
+
+		require.NoError(t, err)
+		require.Equal(t, 2, attempts)
+		require.Equal(t, "core-go", resp.Name)
+	})
+
+	t.Run("兼容 RetryAppError 后可重试 wrapper 业务失败", func(t *testing.T) {
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			if attempts == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"code":    30001,
+					"message": "temporary business failed",
 				})
 				return
 			}
@@ -286,8 +335,28 @@ func TestRetryOnlyForIdempotentMethodsByDefault(t *testing.T) {
 
 	var resp map[string]bool
 	err := Get(server.URL, JSONResp(&resp), Retry(&RetryOpt{BaseDelay: time.Millisecond, MaxDelay: time.Millisecond})).Do()
+	require.Error(t, err)
+	require.Equal(t, 1, attempts)
+
+	attempts = 0
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, retryableNetError{"dial failed"}
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+			Request:    req,
+		}, nil
+	})}
+	resp = nil
+	err = Get("http://example.test", Client(client), JSONResp(&resp), Retry(&RetryOpt{BaseDelay: time.Millisecond, MaxDelay: time.Millisecond})).Do()
 	require.NoError(t, err)
 	require.Equal(t, 2, attempts)
+	require.True(t, resp["ok"])
 
 	attempts = 0
 	err = Post(server.URL, JSONReq(map[string]string{"x": "y"}), Retry(&RetryOpt{Attempts: 3, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond})).Do()
@@ -333,6 +402,7 @@ func TestServiceDiscoveryFailureAndOverride(t *testing.T) {
 		).Do()
 
 		require.ErrorIs(t, err, ErrServiceDiscoveryDisabled)
+		require.Equal(t, ErrCodeHTTPServiceDiscoveryDisabled, datax.CodeOf(err))
 	})
 
 	t.Run("无健康实例时返回 ErrNoHealthyInstance", func(t *testing.T) {
@@ -353,6 +423,55 @@ func TestServiceDiscoveryFailureAndOverride(t *testing.T) {
 		).Do()
 
 		require.ErrorIs(t, err, ErrNoHealthyInstance)
+		require.Equal(t, ErrCodeHTTPNoHealthyInstance, datax.CodeOf(err))
+	})
+
+	t.Run("resolver 未知错误包装为 UpstreamError", func(t *testing.T) {
+		root := errors.New("resolver boom")
+		err := Get("http://inventory.prod/api",
+			Service(ServiceOptions{
+				EnableDiscovery: true,
+				Resolver: ResolverFunc(func(ctx context.Context, req ResolveRequest) (*ResolveResponse, error) {
+					return nil, root
+				}),
+			}),
+		).Do()
+
+		var upstreamErr *datax.UpstreamError
+		require.ErrorAs(t, err, &upstreamErr)
+		require.ErrorIs(t, err, root)
+		require.Equal(t, "http://inventory.prod/api", upstreamErr.Target)
+		require.Equal(t, http.MethodGet, upstreamErr.Operation)
+		require.Equal(t, datax.ErrCodeUnexpected, datax.CodeOf(err))
+	})
+
+	t.Run("picker 未知错误包装为 UpstreamError", func(t *testing.T) {
+		root := errors.New("picker boom")
+		resolver := ResolverFunc(func(ctx context.Context, req ResolveRequest) (*ResolveResponse, error) {
+			return &ResolveResponse{
+				ServiceName: req.ServiceName,
+				Namespace:   req.Namespace,
+				Instances: []Instance{{
+					Host:         "127.0.0.1",
+					Port:         8080,
+					HealthStatus: HealthStatusHealthy,
+				}},
+			}, nil
+		})
+		picker := InstancePickerFunc(func(ctx context.Context, req ResolveRequest, resp *ResolveResponse) (*Instance, error) {
+			return nil, root
+		})
+
+		err := Get("http://inventory.prod/api",
+			Service(ServiceOptions{EnableDiscovery: true, Resolver: resolver, Picker: picker}),
+		).Do()
+
+		var upstreamErr *datax.UpstreamError
+		require.ErrorAs(t, err, &upstreamErr)
+		require.ErrorIs(t, err, root)
+		require.Equal(t, "http://inventory.prod/api", upstreamErr.Target)
+		require.Equal(t, http.MethodGet, upstreamErr.Operation)
+		require.Equal(t, datax.ErrCodeUnexpected, datax.CodeOf(err))
 	})
 
 	t.Run("InstanceOverride 绕过 resolver 并保留原始 Host", func(t *testing.T) {
@@ -434,6 +553,7 @@ func TestTimeoutBudgetExhausted(t *testing.T) {
 	err := Get("http://example.invalid", Context(ctx)).Do()
 
 	require.ErrorIs(t, err, ErrTimeoutBudgetExhausted)
+	require.Equal(t, ErrCodeHTTPTimeoutBudgetExhausted, datax.CodeOf(err))
 }
 
 func TestInvalidOptionsAndResponseReadError(t *testing.T) {
@@ -451,7 +571,7 @@ func TestInvalidOptionsAndResponseReadError(t *testing.T) {
 		require.Contains(t, err.Error(), "response wrapper should be ptr")
 	})
 
-	t.Run("读取响应 body 失败时返回 CallError", func(t *testing.T) {
+	t.Run("读取响应 body 失败时返回应用错误", func(t *testing.T) {
 		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -466,9 +586,7 @@ func TestInvalidOptionsAndResponseReadError(t *testing.T) {
 		err := Get("http://example.test", Client(client), JsonResp(&resp)).Do()
 
 		require.Error(t, err)
-		var callErr *CallError
-		require.ErrorAs(t, err, &callErr)
-		require.Contains(t, callErr.Err.Error(), "read body failed")
+		require.Contains(t, err.Error(), "read body failed")
 	})
 }
 
@@ -600,26 +718,16 @@ func TestDoStream(t *testing.T) {
 		require.Equal(t, 1, trackingBody.closes)
 	})
 
-	t.Run("复用状态码重试逻辑", func(t *testing.T) {
+	t.Run("流式响应的失败状态码不默认重试", func(t *testing.T) {
 		attempts := 0
 		failedBody := &trackingReadCloser{r: strings.NewReader("temporary")}
-		successBody := &trackingReadCloser{r: strings.NewReader("ok")}
 		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			attempts++
-			if attempts == 1 {
-				return &http.Response{
-					StatusCode: http.StatusInternalServerError,
-					Status:     "500 Internal Server Error",
-					Header:     http.Header{},
-					Body:       failedBody,
-					Request:    req,
-				}, nil
-			}
 			return &http.Response{
-				StatusCode: http.StatusOK,
-				Status:     "200 OK",
+				StatusCode: http.StatusInternalServerError,
+				Status:     "500 Internal Server Error",
 				Header:     http.Header{},
-				Body:       successBody,
+				Body:       failedBody,
 				Request:    req,
 			}, nil
 		})}
@@ -628,15 +736,10 @@ func TestDoStream(t *testing.T) {
 			Client(client),
 			Retry(&RetryOpt{Attempts: 2, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}),
 		).DoStream()
-		require.NoError(t, err)
-		require.Equal(t, 2, attempts)
+		require.Nil(t, resp)
+		require.Error(t, err)
+		require.Equal(t, 1, attempts)
 		require.Equal(t, 1, failedBody.closes)
-		require.Zero(t, successBody.closes)
-		body, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-		require.Equal(t, "ok", string(body))
-		require.NoError(t, resp.Body.Close())
-		require.Equal(t, 1, successBody.closes)
 	})
 
 	t.Run("非预期状态码关闭错误响应体", func(t *testing.T) {
@@ -657,9 +760,15 @@ func TestDoStream(t *testing.T) {
 		var callErr *CallError
 		require.ErrorAs(t, err, &callErr)
 		require.Equal(t, http.StatusTeapot, callErr.StatusCode)
+		var upstreamErr *datax.UpstreamError
+		require.ErrorAs(t, err, &upstreamErr)
 		var statusErr *HTTPStatusError
 		require.ErrorAs(t, err, &statusErr)
-		require.Equal(t, "teapot", string(statusErr.Body))
+		require.Equal(t, http.StatusTeapot, statusErr.StatusCode)
+		var httpErr *datax.ErrHttp
+		require.ErrorAs(t, err, &httpErr)
+		require.Equal(t, http.StatusTeapot, httpErr.StatusCode)
+		require.Equal(t, "teapot", string(httpErr.Body))
 		require.Equal(t, 1, trackingBody.closes)
 		require.Greater(t, trackingBody.reads, 0)
 	})
@@ -801,6 +910,18 @@ func (valueWrapper) Validate() error {
 	return nil
 }
 
+type retryableWrapper struct {
+	CommonWrapper
+}
+
+func (w *retryableWrapper) Validate() error {
+	err := w.CommonWrapper.Validate()
+	if err == nil {
+		return nil
+	}
+	return datax.WithRetryableError(err)
+}
+
 type countingWrapper struct {
 	setDataCalls   int
 	validateCalls  int
@@ -815,4 +936,20 @@ func (w *countingWrapper) SetData(ret any) {
 func (w *countingWrapper) Validate() error {
 	w.validateCalls++
 	return nil
+}
+
+type retryableNetError struct {
+	msg string
+}
+
+func (e retryableNetError) Error() string {
+	return e.msg
+}
+
+func (e retryableNetError) Timeout() bool {
+	return false
+}
+
+func (e retryableNetError) Temporary() bool {
+	return true
 }

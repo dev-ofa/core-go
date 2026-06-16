@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dev-ofa/core-go/model/datax"
 )
 
 // Manager routes resource operations to handlers by source scheme.
@@ -42,10 +44,10 @@ func NewManager(opts ...Option) *Manager {
 // Register registers or replaces a handler for a scheme.
 func (m *Manager) Register(scheme string, handler ResourceHandler) error {
 	if handler == nil {
-		return fmt.Errorf("handler is nil")
+		return datax.NewValidationError("handler is nil", nil, nil)
 	}
 	if scheme == "" || strings.ToLower(scheme) != scheme || !schemeRegexp.MatchString(scheme) {
-		return fmt.Errorf("invalid scheme %q", scheme)
+		return datax.NewValidationError(fmt.Sprintf("invalid scheme %q", scheme), nil, nil)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -68,7 +70,7 @@ func (m *Manager) Open(ctx context.Context, raw string) (*Stream, error) {
 		return nil, &OpenError{Identifier: id, Err: err}
 	}
 	if stream == nil || stream.Body == nil {
-		return nil, &OpenError{Identifier: id, Err: fmt.Errorf("handler returned empty stream")}
+		return nil, &OpenError{Identifier: id, Err: datax.NewValidationError("handler returned empty stream", nil, nil)}
 	}
 	return stream, nil
 }
@@ -76,7 +78,7 @@ func (m *Manager) Open(ctx context.Context, raw string) (*Stream, error) {
 // Download opens raw and atomically writes its body to dstPath.
 func (m *Manager) Download(ctx context.Context, raw string, dstPath string) error {
 	if dstPath == "" {
-		return &DownloadError{DstPath: dstPath, Err: fmt.Errorf("dstPath is empty")}
+		return &DownloadError{DstPath: dstPath, Err: datax.NewValidationError("dstPath is empty", nil, nil)}
 	}
 	stream, err := m.Open(ctx, raw)
 	if err != nil {
@@ -89,7 +91,7 @@ func (m *Manager) Download(ctx context.Context, raw string, dstPath string) erro
 	if statErr != nil {
 		return &DownloadError{DstPath: dstPath, Err: statErr}
 	} else if !info.IsDir() {
-		return &DownloadError{DstPath: dstPath, Err: fmt.Errorf("destination parent is not a directory")}
+		return &DownloadError{DstPath: dstPath, Err: datax.NewValidationError("destination parent is not a directory", nil, nil)}
 	}
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(dstPath)+".tmp-*")
 	if err != nil {
@@ -124,7 +126,7 @@ func (m *Manager) Download(ctx context.Context, raw string, dstPath string) erro
 // Upload routes an upload request to the handler registered for scheme.
 func (m *Manager) Upload(ctx context.Context, scheme string, in UploadInput) (Identifier, error) {
 	if scheme == "" || strings.ToLower(scheme) != scheme || !schemeRegexp.MatchString(scheme) {
-		return Identifier{}, &UploadError{Scheme: scheme, Err: fmt.Errorf("invalid scheme %q", scheme)}
+		return Identifier{}, &UploadError{Scheme: scheme, Err: datax.NewValidationError(fmt.Sprintf("invalid scheme %q", scheme), nil, nil)}
 	}
 	handler, err := m.handler(scheme)
 	if err != nil {

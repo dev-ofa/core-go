@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/dev-ofa/core-go/model/datax"
 	"github.com/dev-ofa/core-go/trace/logging"
 )
 
@@ -38,6 +39,7 @@ type Agent struct {
 	respWrapper         Wrapper
 	client              *http.Client
 	expectedStatusCodes []int
+	retryStatusCodes    []int
 	retryOpt            *RetryOpt
 	timeoutQuota        time.Duration
 	service             ServiceOptions
@@ -53,6 +55,9 @@ type RetryOpt struct {
 	// BaseDelay is the first backoff delay before jitter.
 	BaseDelay time.Duration
 	// RetryAppError indicates whether wrapper validation errors can be retried.
+	//
+	// New code should prefer returning datax.WithRetryableError from the
+	// response wrapper to make retryability explicit.
 	RetryAppError bool
 	// Attempts is the total attempt count. The spec default is 3 when retry is enabled.
 	Attempts int
@@ -91,7 +96,7 @@ func NewClient() *http.Client {
 // Do executes the HTTP call.
 func (a *Agent) Do() error {
 	if err := a.init(); err != nil {
-		return err
+		return a.wrapCallError("", err)
 	}
 	if a.cancel != nil {
 		defer a.cancel()
@@ -107,7 +112,7 @@ func (a *Agent) DoStream() (*http.Response, error) {
 		if a.cancel != nil {
 			a.cancel()
 		}
-		return nil, err
+		return nil, a.wrapCallError("", err)
 	}
 	resp, err := a.executeHTTP(executeStream)
 	if err != nil {
@@ -235,7 +240,7 @@ func (a *Agent) retryDoHTTP(mode executeMode) (*http.Response, error) {
 		select {
 		case <-a.ctx.Done():
 			timer.Stop()
-			return nil, a.ctx.Err()
+			return nil, a.wrapCallError("", a.ctx.Err())
 		case <-timer.C:
 		}
 	}
@@ -247,28 +252,44 @@ type attemptResult struct {
 	requestID  string
 }
 
-func (a *Agent) doHTTP(mode executeMode) (*attemptResult, *http.Response, error) {
+func (a *Agent) doHTTP(mode executeMode) (result *attemptResult, resp *http.Response, err error) {
 	req, requestID, err := a.prepareRequest()
+	result = &attemptResult{requestID: requestID}
+	defer func() {
+		if err != nil {
+			err = a.wrapCallError(requestID, err)
+		}
+	}()
 	if err != nil {
-		return &attemptResult{requestID: requestID}, nil, err
+		return result, nil, err
 	}
 	start := time.Now()
 	logging.CtxInfof(a.ctx, "httpx request start method=%s path=%s", req.Method, req.URL.Path)
-	resp, err := a.client.Do(req)
+	resp, err = a.client.Do(req)
 	if err != nil {
-		wrapped := &CallError{Method: req.Method, URL: req.URL.String(), RequestID: requestID, Err: fmt.Errorf("request do failed: %w", err)}
-		a.logEnd(req, 0, start, wrapped)
-		return &attemptResult{requestID: requestID}, nil, wrapped
+		cause := fmt.Errorf("request do failed: %w", err)
+		if isRetryableTransportError(err) {
+			err = datax.WithRetryableError(cause)
+			a.logEnd(req, 0, start, a.wrapCallError(requestID, err))
+			return result, nil, err
+		}
+		a.logEnd(req, 0, start, a.wrapCallError(requestID, cause))
+		return result, nil, cause
 	}
 
-	result := &attemptResult{statusCode: resp.StatusCode, requestID: requestID}
+	result.statusCode = resp.StatusCode
 	if !a.isInExpectedStatusCodes(resp.StatusCode) {
 		body, readErr := io.ReadAll(resp.Body)
-		statusErr := newHTTPStatusError(a.expectedStatusCodes, resp, body, readErr)
-		wrapped := &CallError{Method: req.Method, URL: req.URL.String(), RequestID: requestID, StatusCode: resp.StatusCode, Err: statusErr}
-		a.logEnd(req, resp.StatusCode, start, wrapped)
+		var cause error = datax.NewErrHttp(resp.StatusCode, body)
+		if readErr != nil {
+			cause = fmt.Errorf("%w: read body failed: %v", cause, readErr)
+		}
+		if a.isInRetryStatusCodes(resp.StatusCode) {
+			cause = datax.WithRetryableError(cause)
+		}
+		a.logEnd(req, resp.StatusCode, start, a.wrapCallError(requestID, cause))
 		_ = resp.Body.Close()
-		return result, nil, wrapped
+		return result, nil, cause
 	}
 	if mode == executeStream {
 		a.logEnd(req, resp.StatusCode, start, nil)
@@ -277,14 +298,32 @@ func (a *Agent) doHTTP(mode executeMode) (*attemptResult, *http.Response, error)
 	defer resp.Body.Close()
 	if a.respHandler != nil {
 		if err := a.respHandler.HandleResponse(resp, a.respWrapper); err != nil {
-			appErr := &applicationError{err: err}
-			wrapped := &CallError{Method: req.Method, URL: req.URL.String(), RequestID: requestID, StatusCode: resp.StatusCode, Err: appErr}
-			a.logEnd(req, resp.StatusCode, start, wrapped)
-			return result, nil, wrapped
+			if a.retryOpt != nil && a.retryOpt.RetryAppError {
+				err = datax.WithRetryableError(err)
+			}
+			a.logEnd(req, resp.StatusCode, start, a.wrapCallError(requestID, err))
+			return result, nil, err
 		}
 	}
 	a.logEnd(req, resp.StatusCode, start, nil)
 	return result, nil, nil
+}
+
+func (a *Agent) wrapCallError(requestID string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var callErr *CallError
+	if errors.As(err, &callErr) {
+		return err
+	}
+	upstreamErr := datax.NewUpstreamError(a.url, a.method, requestID, err)
+	var httpErr *datax.ErrHttp
+	if errors.As(err, &httpErr) {
+		statusErr := &HTTPStatusError{StatusCode: httpErr.StatusCode, ExpectedStatusCodes: a.expectedStatusCodes, Body: httpErr.Body, Cause: err}
+		return newCallError(a.method, a.url, requestID, httpErr.StatusCode, datax.NewUpstreamError(a.url, a.method, requestID, statusErr))
+	}
+	return newCallError(a.method, a.url, requestID, 0, upstreamErr)
 }
 
 func (a *Agent) logEnd(req *http.Request, statusCode int, start time.Time, err error) {
@@ -293,8 +332,7 @@ func (a *Agent) logEnd(req *http.Request, statusCode int, start time.Time, err e
 		logging.CtxInfof(a.ctx, "httpx request end method=%s path=%s status_code=%d duration_ms=%d", req.Method, req.URL.Path, statusCode, duration)
 		return
 	}
-	var appErr *applicationError
-	if errors.As(err, &appErr) {
+	if datax.IsExpected(err) {
 		logging.CtxWarnf(a.ctx, "httpx request end method=%s path=%s status_code=%d duration_ms=%d error=%v", req.Method, req.URL.Path, statusCode, duration, err)
 		return
 	}
@@ -314,13 +352,10 @@ func (a *Agent) canRetryMethod() bool {
 }
 
 func (a *Agent) shouldRetry(err error, result *attemptResult) bool {
-	var appErr *applicationError
-	if errors.As(err, &appErr) {
-		return a.retryOpt != nil && a.retryOpt.RetryAppError
-	}
-	if result != nil && result.statusCode >= http.StatusInternalServerError {
-		return true
-	}
+	return datax.IsRetryableError(err)
+}
+
+func isRetryableTransportError(err error) bool {
 	var netErr net.Error
 	return errors.As(err, &netErr)
 }
@@ -354,6 +389,15 @@ func (a *Agent) isInExpectedStatusCodes(code int) bool {
 	return false
 }
 
+func (a *Agent) isInRetryStatusCodes(code int) bool {
+	for _, retryCode := range a.retryStatusCodes {
+		if retryCode == code {
+			return true
+		}
+	}
+	return false
+}
+
 // Ops appends options to the Agent.
 func (a *Agent) Ops(ops ...AgentOp) *Agent {
 	a.existedOps = append(a.existedOps, ops...)
@@ -375,6 +419,14 @@ func Retry(opt *RetryOpt) AgentOpFunc {
 func ExpectedStatusCodes(codes []int) AgentOpFunc {
 	return func(agent *Agent) error {
 		agent.expectedStatusCodes = append([]int(nil), codes...)
+		return nil
+	}
+}
+
+// RetryStatusCodes configures HTTP status codes that are safe to retry.
+func RetryStatusCodes(codes []int) AgentOpFunc {
+	return func(agent *Agent) error {
+		agent.retryStatusCodes = append([]int(nil), codes...)
 		return nil
 	}
 }
@@ -428,7 +480,7 @@ func SetHeader(header http.Header) AgentOpFunc {
 func RespWrapper(wrapper Wrapper) AgentOpFunc {
 	return func(agent *Agent) error {
 		if wrapper == nil || reflect.TypeOf(wrapper).Kind() != reflect.Ptr {
-			return fmt.Errorf("response wrapper should be ptr")
+			return datax.NewValidationError("response wrapper should be ptr", nil, nil)
 		}
 		agent.respWrapper = wrapper
 		return nil
@@ -475,18 +527,6 @@ func newAgent(url string, method string, ops ...AgentOp) *Agent {
 		existedOps: ops,
 		ctx:        context.Background(),
 	}
-}
-
-type applicationError struct {
-	err error
-}
-
-func (e *applicationError) Error() string {
-	return e.err.Error()
-}
-
-func (e *applicationError) Unwrap() error {
-	return e.err
 }
 
 type cancelOnCloseReadCloser struct {

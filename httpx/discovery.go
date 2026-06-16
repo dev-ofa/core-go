@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/dev-ofa/core-go/model/datax"
 )
 
 // ResolveMode controls whether discovery should return only healthy instances.
@@ -189,7 +191,7 @@ func resolveURL(ctx context.Context, original *url.URL, opt ServiceOptions, trac
 		serviceName, namespace = parseServiceIdentifier(original.Hostname(), namespace)
 	}
 	if serviceName == "" || namespace == "" {
-		return nil, "", fmt.Errorf("service discovery requires service name and namespace")
+		return nil, "", datax.NewValidationError("service discovery requires service name and namespace", nil, nil)
 	}
 	mode := opt.ResolveMode
 	if mode == "" {
@@ -207,7 +209,7 @@ func resolveURL(ctx context.Context, original *url.URL, opt ServiceOptions, trac
 	}
 	resp, err := opt.Resolver.Resolve(ctx, req)
 	if err != nil {
-		return nil, "", fmt.Errorf("service resolve failed: %w", err)
+		return nil, "", err
 	}
 	picker := opt.Picker
 	if picker == nil {

@@ -7,8 +7,21 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dev-ofa/core-go/model"
 	"github.com/sony/sonyflake"
 )
+
+// SnowflakeStartTime returns the fixed epoch shared by dev-ofa Sonyflake generators.
+//
+// The date is intentionally earlier than Sonyflake's default 2014-09-01 epoch so
+// newly generated decimal IDs are already 19 digits in 2026-era systems. This
+// avoids a future 18-to-19-digit boundary where plain decimal string ordering
+// would temporarily diverge from numeric ordering. Treat this value as a
+// cross-language compatibility constant; changing it after launch can break ID
+// ordering assumptions and may risk collisions with generators using another epoch.
+func SnowflakeStartTime() time.Time {
+	return time.Date(2007, 7, 1, 0, 0, 0, 0, time.UTC)
+}
 
 // NumberAllocator allocates a unique number from a bounded range.
 type NumberAllocator interface {
@@ -38,8 +51,6 @@ type ElectionOption struct {
 	IsolationKey string
 	// CanElect is called before campaigning; returning false prevents this node from becoming leader.
 	CanElect func() bool
-	// OnLeaderChanged receives leader-state transition notifications.
-	OnLeaderChanged LeaderChangedHandler
 }
 
 // ElectionController exposes leader election and heartbeat operations.
@@ -74,10 +85,12 @@ type IDGenerator interface {
 	NextIDString(ctx context.Context) (string, error)
 }
 
-// SnowflakeIDGenerator is kept for compatibility with go-dev/dkit.
+// SnowflakeIDGenerator generates globally unique snowflake IDs.
 type SnowflakeIDGenerator interface {
 	// GetID returns a globally unique ID and panics when generation fails.
 	GetID() uint64
+	// GetSnowflakeID returns a globally unique SnowflakeID and panics when generation fails.
+	GetSnowflakeID() model.SnowflakeID
 	// GetIDString returns a globally unique string ID and panics when generation fails.
 	GetIDString() string
 }
@@ -123,6 +136,7 @@ func NewDefaultKitWithContext(ctx context.Context, atomic Atomic) (Kit, error) {
 	}
 
 	ins := sonyflake.NewSonyflake(sonyflake.Settings{
+		StartTime: SnowflakeStartTime(),
 		MachineID: func() (uint16, error) {
 			return uint16(num), nil
 		},
@@ -140,6 +154,14 @@ type defaultKit struct {
 	ins *sonyflake.Sonyflake
 }
 
+func (d *defaultKit) nextID() (uint64, error) {
+	i, err := d.ins.NextID()
+	if err != nil {
+		return 0, fmt.Errorf("get snowflake id failed: %w", err)
+	}
+	return i, nil
+}
+
 // NextID returns a globally unique ID.
 func (d *defaultKit) NextID(ctx context.Context) (uint64, error) {
 	if ctx != nil {
@@ -149,11 +171,7 @@ func (d *defaultKit) NextID(ctx context.Context) (uint64, error) {
 		default:
 		}
 	}
-	i, err := d.ins.NextID()
-	if err != nil {
-		return 0, fmt.Errorf("get snowflake id failed: %w", err)
-	}
-	return i, nil
+	return d.nextID()
 }
 
 // NextIDString returns a globally unique ID formatted as a string.
@@ -167,20 +185,21 @@ func (d *defaultKit) NextIDString(ctx context.Context) (string, error) {
 
 // GetID returns a globally unique ID and panics when generation fails.
 func (d *defaultKit) GetID() uint64 {
-	i, err := d.NextID(context.Background())
+	i, err := d.nextID()
 	if err != nil {
 		panic(err)
 	}
 	return i
 }
 
+// GetSnowflakeID returns a globally unique SnowflakeID and panics when generation fails.
+func (d *defaultKit) GetSnowflakeID() model.SnowflakeID {
+	return model.NewSnowflakeID(d.GetID())
+}
+
 // GetIDString returns a globally unique string ID and panics when generation fails.
 func (d *defaultKit) GetIDString() string {
-	i, err := d.NextIDString(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	return i
+	return strconv.FormatUint(d.GetID(), 10)
 }
 
 // MutexTryDo tries to acquire mutexKey before executing action.

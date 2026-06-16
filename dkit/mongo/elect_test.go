@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dev-ofa/core-go/dkit"
+	"github.com/shiningrush/goext/runx/eventx"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -206,7 +207,7 @@ func TestElectionImpl_InvalidOptions(t *testing.T) {
 	}
 }
 
-func TestAtomic_EnableElectionCallback(t *testing.T) {
+func TestAtomic_EnableElectionEvent(t *testing.T) {
 	db := testDatabase(t)
 	prefix := testPrefix(t)
 	dropCollections(t, db, prefix+"_random", prefix+"_mutex", prefix+"_elect", prefix+"_heartbeat")
@@ -221,15 +222,23 @@ func TestAtomic_EnableElectionCallback(t *testing.T) {
 		}
 	}()
 
+	eventx.SetEventBus(eventx.NewInMemoryEventBus())
+	t.Cleanup(func() {
+		eventx.SetEventBus(eventx.NewInMemoryEventBus())
+	})
+
 	events := make(chan dkit.LeaderChangedEvent, 2)
+	if err := dkit.SubscribeLeaderChanged(func(event dkit.LeaderChangedEvent) {
+		events <- event
+	}); err != nil {
+		t.Fatalf("subscribe leader changed: %v", err)
+	}
+
 	err = atomicBackend.EnableElection(&dkit.ElectionOption{
 		NodeKey:       "node-1",
 		KeepHeartbeat: true,
 		UnhealthyTime: 200 * time.Millisecond,
 		Timeout:       time.Second,
-		OnLeaderChanged: func(event dkit.LeaderChangedEvent) {
-			events <- event
-		},
 	})
 	if err != nil {
 		t.Fatalf("enable election: %v", err)

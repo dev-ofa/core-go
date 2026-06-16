@@ -1,21 +1,35 @@
 package resource
 
 import (
-	"errors"
 	"fmt"
+
+	"github.com/dev-ofa/core-go/model/datax"
+)
+
+const (
+	// ErrCodeResourceUnsupportedScheme means no handler is registered for the resource scheme.
+	ErrCodeResourceUnsupportedScheme = 20200
+	// ErrCodeResourceOpenUnsupported means a handler does not implement opening.
+	ErrCodeResourceOpenUnsupported = 20201
+	// ErrCodeResourceUploadUnsupported means a handler does not implement uploading.
+	ErrCodeResourceUploadUnsupported = 20202
+	// ErrCodeResourceSizeLimitExceeded means a resource body exceeded the configured size limit.
+	ErrCodeResourceSizeLimitExceeded = 20203
+	// ErrCodeResourceTimeoutBudgetExhausted means the current context deadline has no remaining budget.
+	ErrCodeResourceTimeoutBudgetExhausted = 10120
 )
 
 var (
 	// ErrUnsupportedScheme means no handler is registered for the resource scheme.
-	ErrUnsupportedScheme = errors.New("resource: unsupported scheme")
+	ErrUnsupportedScheme = datax.NewError(ErrCodeResourceUnsupportedScheme, "resource: unsupported scheme", nil)
 	// ErrOpenUnsupported means a handler does not implement opening.
-	ErrOpenUnsupported = errors.New("resource: open unsupported")
+	ErrOpenUnsupported = datax.NewError(ErrCodeResourceOpenUnsupported, "resource: open unsupported", nil)
 	// ErrUploadUnsupported means a handler does not implement uploading.
-	ErrUploadUnsupported = errors.New("resource: upload unsupported")
+	ErrUploadUnsupported = datax.NewError(ErrCodeResourceUploadUnsupported, "resource: upload unsupported", nil)
 	// ErrSizeLimitExceeded means a resource body exceeded the configured size limit.
-	ErrSizeLimitExceeded = errors.New("resource: size limit exceeded")
+	ErrSizeLimitExceeded = datax.NewError(ErrCodeResourceSizeLimitExceeded, "resource: size limit exceeded", nil)
 	// ErrTimeoutBudgetExhausted means the current context deadline has no remaining budget.
-	ErrTimeoutBudgetExhausted = errors.New("resource: timeout budget exhausted")
+	ErrTimeoutBudgetExhausted = datax.NewError(ErrCodeResourceTimeoutBudgetExhausted, "resource: timeout budget exhausted", nil)
 )
 
 // ParseError wraps resource identifier parse failures.

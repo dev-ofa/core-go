@@ -13,7 +13,7 @@
 
 命令行参数是 `core-go` 的实现扩展，不属于标准配置来源。当前实现支持 `--group.key=value`，其优先级高于环境变量，仅建议用于本地调试、临时诊断和测试场景。
 
-命令行参数不得用于传入密钥、密码、Token 等敏感配置；敏感配置必须来自环境变量或安全存储。
+命令行参数不得用于传入密钥、密码、Token 等敏感配置；共享环境中的敏感配置必须来自环境变量或安全存储。本地开发允许通过 `config.local.yaml` 提供敏感配置。
 
 ## 默认路径与命名
 - 默认文件：configs/config.yaml
@@ -33,7 +33,7 @@
 ```bash
 ENV=dev \
 APP__HTTP__PORT=8080 \
-APP__DB__URI=mongodb://user:password-from-env@host:27017/db \
+APP__DB__URI=mongodb://user:${DB_PASSWORD}@host:27017/db \
 your-app --http.port=9090
 ```
 
@@ -83,6 +83,8 @@ cfg, _, err := config.Load[AppConfig](opts)
 _ = cfg
 _ = err
 ```
+
+敏感配置在“有实际值”时必须来自环境变量或 `config.local.yaml`；基础配置文件与环境差异配置文件中的敏感值会被拒绝。空字符串仍视为未设置，便于在基础配置文件中显式留空并等待运行环境或本地覆盖文件注入。
 
 ## 使用示例
 ```go

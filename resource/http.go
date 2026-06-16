@@ -50,6 +50,7 @@ func (h httpHandler) Open(ctx context.Context, id Identifier) (*Stream, error) {
 		httpx.Client(h.client),
 		httpx.TimeoutQuota(h.timeoutQuota),
 		httpx.ExpectedStatusCodes(successStatusCodes()),
+		httpx.RetryStatusCodes(serverErrorStatusCodes()),
 		httpx.Retry(&httpx.RetryOpt{
 			Attempts:  h.retryAttempts,
 			BaseDelay: h.retryBase,
@@ -153,4 +154,12 @@ func successStatusCodes() []int {
 		http.StatusAlreadyReported,
 		http.StatusIMUsed,
 	}
+}
+
+func serverErrorStatusCodes() []int {
+	codes := make([]int, 0, 100)
+	for code := http.StatusInternalServerError; code <= http.StatusNetworkAuthenticationRequired; code++ {
+		codes = append(codes, code)
+	}
+	return codes
 }

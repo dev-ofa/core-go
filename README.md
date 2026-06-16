@@ -109,11 +109,13 @@ kit, err := dkit.NewDefaultKitWithContext(context.Background(), backend)
 if err != nil {
 	return err
 }
+// 应用启动时也可以注册 provider-owned 默认实例，供大量基础设施调用点复用。
+dkit.SetDefaultKit(kit)
+defer dkit.ResetDefaultKit()
 
-id, err := kit.NextIDString(context.Background())
-if err != nil {
-	return err
-}
+id := dkit.DefaultKit().GetSnowflakeID()
+// dkit 使用固定 Sonyflake epoch，让新生成的十进制 ID 上线即进入 19 位区间，避免未来跨 18/19 位边界。
+// model.SnowflakeID 在 Go/API 链路中是字符串类型，在数据库中按数值存储；若项目可自由选择 ID 格式，优先考虑固定宽度字符串 ID。
 
 err = kit.MutexCtxDo(context.Background(), "daily-worker", func(ctx context.Context) error {
 	// do work while holding the distributed mutex

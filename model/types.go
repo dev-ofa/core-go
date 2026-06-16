@@ -6,7 +6,7 @@ import (
 
 // IDType defines supported identifier types.
 type IDType interface {
-	string | int | int64 | uint64
+	~string | ~int | ~int64 | ~uint64
 }
 
 // EntityConstraint describes entities that expose GetID/SetID.
@@ -80,6 +80,14 @@ type PagedResult[T any] struct {
 	Rows []T `json:"rows"`
 	// TotalCount is the total number of rows.
 	TotalCount int `json:"total_count"`
+}
+
+// FeedResult wraps cursor-paginated rows and the continuation token.
+type FeedResult[T any] struct {
+	// Rows is the data slice.
+	Rows []T `json:"rows"`
+	// NextPageToken is the server-generated token for the next feed page.
+	NextPageToken string `json:"next_page_token,omitempty"`
 }
 
 // Repo defines the repository interface for CRUD and batch operations.

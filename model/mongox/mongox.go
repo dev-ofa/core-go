@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -137,6 +138,18 @@ type PageQueryInput struct {
 	Sort datax.SortInfo
 }
 
+// FeedQueryInput wraps filter, pager, and cursor field for feed queries.
+type FeedQueryInput struct {
+	// Filter is the Mongo filter.
+	Filter bson.M
+	// Pager is the feed paging input. PageSize is used; PageNum is ignored.
+	Pager datax.PagerInfo
+	// CursorField is the single field used as feed cursor. Defaults to _id.
+	CursorField string
+	// IsDescending controls cursor sort direction.
+	IsDescending bool
+}
+
 // WithRepoOpt sets repo options on the collection helper.
 func (l *CollectionLib[P, T]) WithRepoOpt(opt *model.RepoOpt) *CollectionLib[P, T] {
 	l.opt = opt
@@ -156,7 +169,7 @@ func (l *CollectionLib[P, T]) injectIsolationCond(ctx context.Context, filter bs
 		if _, ok := any(gtx.Zero[T]()).(model.CreateAuditor); ok {
 			uid, ok := pass.CtxGetOperator(ctx)
 			if !ok {
-				return nil, fmt.Errorf("there is no user id in context")
+				return nil, datax.NewValidationError("there is no user id in context", nil, nil)
 			}
 			filter["created_by"] = uid
 		}
@@ -164,7 +177,7 @@ func (l *CollectionLib[P, T]) injectIsolationCond(ctx context.Context, filter bs
 		if _, ok := any(gtx.Zero[T]()).(model.TenantCarrier); ok {
 			tid, ok := pass.CtxGetTenantID(ctx)
 			if !ok {
-				return nil, fmt.Errorf("there is no tenant id in context")
+				return nil, datax.NewValidationError("there is no tenant id in context", nil, nil)
 			}
 			filter["tenant_id"] = tid
 		}
@@ -172,7 +185,7 @@ func (l *CollectionLib[P, T]) injectIsolationCond(ctx context.Context, filter bs
 		if _, ok := any(gtx.Zero[T]()).(model.TenantCarrier); ok {
 			tid, ok := pass.CtxGetAppID(ctx)
 			if !ok {
-				return nil, fmt.Errorf("there is no app id in context")
+				return nil, datax.NewValidationError("there is no app id in context", nil, nil)
 			}
 			filter["app_id"] = tid
 		}
@@ -269,6 +282,246 @@ func (l *CollectionLib[P, T]) PageQuery(ctx context.Context, input *PageQueryInp
 	return ret, nil
 }
 
+// FeedQuery performs a single-field cursor-based feed query without counting total rows.
+func (l *CollectionLib[P, T]) FeedQuery(ctx context.Context, input *FeedQueryInput) (ret *model.FeedResult[T], err error) {
+	pageSize, _, pageToken := 0, 0, ""
+	if input.Pager != nil {
+		pageSize, _, pageToken = input.Pager.GetPageInfo()
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	cursorField := l.normalizeFeedCursorField(input.CursorField)
+
+	input.Filter, err = l.InjectCond(ctx, input.Filter)
+	if err != nil {
+		return nil, err
+	}
+	if pageToken != "" {
+		cursorFilter, err := l.buildFeedCursorFilter(cursorField, pageToken, input.IsDescending)
+		if err != nil {
+			return nil, fmt.Errorf("build feed cursor filter failed: %w", err)
+		}
+		input.Filter = mergeFeedFilter(input.Filter, cursorFilter)
+	}
+
+	opt := options.Find()
+	opt.SetLimit(int64(pageSize + 1))
+	opt.SetSort(bson.D{{Key: cursorField, Value: feedSortOrder(input.IsDescending)}})
+
+	cur, err := l.cls.Find(ctx, input.Filter, opt)
+	if err != nil {
+		return nil, fmt.Errorf("find feed result failed: %w", err)
+	}
+
+	rows := make([]T, 0, pageSize+1)
+	if err := cur.All(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("unmarshal feed result failed: %w", err)
+	}
+
+	ret = &model.FeedResult[T]{
+		Rows: rows,
+	}
+	if len(rows) > pageSize {
+		ret.Rows = rows[:pageSize]
+		ret.NextPageToken, err = l.feedCursorToken(ret.Rows[len(ret.Rows)-1], cursorField)
+		if err != nil {
+			return nil, fmt.Errorf("build next page token failed: %w", err)
+		}
+	}
+
+	return ret, nil
+}
+
+func (l *CollectionLib[P, T]) normalizeFeedCursorField(cursorField string) string {
+	if cursorField == "" || cursorField == "id" {
+		return l.idKey
+	}
+	return cursorField
+}
+
+func (l *CollectionLib[P, T]) buildFeedCursorFilter(cursorField string, pageToken string, isDescending bool) (bson.M, error) {
+	op := "$gt"
+	if isDescending {
+		op = "$lt"
+	}
+	if cursorField == l.idKey {
+		var zero P
+		value, err := parseFeedTokenByType(pageToken, reflect.TypeOf(zero))
+		if err != nil {
+			return nil, err
+		}
+		return bson.M{cursorField: bson.M{op: value}}, nil
+	}
+	value, err := l.parseFeedCursorToken(cursorField, pageToken)
+	if err != nil {
+		return nil, err
+	}
+	return bson.M{cursorField: bson.M{op: value}}, nil
+}
+
+func feedSortOrder(isDescending bool) int {
+	if isDescending {
+		return -1
+	}
+	return 1
+}
+
+func (l *CollectionLib[P, T]) parseFeedCursorToken(cursorField string, pageToken string) (any, error) {
+	fieldType, ok := findBSONFieldType(reflect.TypeOf(gtx.Zero[T]()), cursorField)
+	if !ok {
+		return nil, datax.NewValidationError(fmt.Sprintf("cursor field %s not found", cursorField), nil, nil)
+	}
+	return parseFeedTokenByType(pageToken, fieldType)
+}
+
+func parseFeedTokenByType(pageToken string, fieldType reflect.Type) (any, error) {
+	for fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+	if fieldType == reflect.TypeOf(time.Time{}) {
+		v, err := time.Parse(time.RFC3339Nano, pageToken)
+		if err != nil {
+			return nil, datax.NewValidationError("parse time feed token failed", nil, err)
+		}
+		return v, nil
+	}
+	switch fieldType.Kind() {
+	case reflect.String:
+		return reflect.ValueOf(pageToken).Convert(fieldType).Interface(), nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v, err := strconv.ParseInt(pageToken, 10, fieldType.Bits())
+		if err != nil {
+			return nil, datax.NewValidationError("parse int feed token failed", nil, err)
+		}
+		return reflect.ValueOf(v).Convert(fieldType).Interface(), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v, err := strconv.ParseUint(pageToken, 10, fieldType.Bits())
+		if err != nil {
+			return nil, datax.NewValidationError("parse uint feed token failed", nil, err)
+		}
+		return reflect.ValueOf(v).Convert(fieldType).Interface(), nil
+	case reflect.Float32, reflect.Float64:
+		v, err := strconv.ParseFloat(pageToken, fieldType.Bits())
+		if err != nil {
+			return nil, datax.NewValidationError("parse float feed token failed", nil, err)
+		}
+		return reflect.ValueOf(v).Convert(fieldType).Interface(), nil
+	default:
+		return nil, datax.NewValidationError(fmt.Sprintf("unsupported cursor field type %s", fieldType.String()), nil, nil)
+	}
+}
+
+func (l *CollectionLib[P, T]) feedCursorToken(row T, cursorField string) (string, error) {
+	if cursorField == l.idKey {
+		return fmt.Sprint(row.GetID()), nil
+	}
+
+	value, ok := findBSONFieldValue(reflect.ValueOf(row), cursorField)
+	if !ok {
+		return "", datax.NewValidationError(fmt.Sprintf("cursor field %s not found", cursorField), nil, nil)
+	}
+	if t, ok := value.(time.Time); ok {
+		return t.Format(time.RFC3339Nano), nil
+	}
+	return fmt.Sprint(value), nil
+}
+
+func findBSONFieldType(entityType reflect.Type, cursorField string) (reflect.Type, bool) {
+	for entityType.Kind() == reflect.Ptr {
+		entityType = entityType.Elem()
+	}
+	if entityType.Kind() != reflect.Struct {
+		return nil, false
+	}
+	for i := 0; i < entityType.NumField(); i++ {
+		field := entityType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		name, inline, skip := parseBSONFieldName(field)
+		if skip {
+			continue
+		}
+		if inline {
+			if fieldType, ok := findBSONFieldType(field.Type, cursorField); ok {
+				return fieldType, true
+			}
+			continue
+		}
+		if name == cursorField {
+			return field.Type, true
+		}
+	}
+	return nil, false
+}
+
+func findBSONFieldValue(value reflect.Value, cursorField string) (any, bool) {
+	for value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			return nil, false
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return nil, false
+	}
+	valueType := value.Type()
+	for i := 0; i < valueType.NumField(); i++ {
+		field := valueType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		name, inline, skip := parseBSONFieldName(field)
+		if skip {
+			continue
+		}
+		fieldValue := value.Field(i)
+		if inline {
+			if v, ok := findBSONFieldValue(fieldValue, cursorField); ok {
+				return v, true
+			}
+			continue
+		}
+		if name == cursorField {
+			return fieldValue.Interface(), true
+		}
+	}
+	return nil, false
+}
+
+func parseBSONFieldName(field reflect.StructField) (name string, inline bool, skip bool) {
+	name = strings.ToLower(field.Name)
+	if mongoTag, ok := field.Tag.Lookup("bson"); ok {
+		name = mongoTag
+	}
+	parts := strings.Split(name, ",")
+	name = parts[0]
+	if name == "-" {
+		return "", false, true
+	}
+	for _, part := range parts[1:] {
+		if part == "inline" {
+			inline = true
+			break
+		}
+	}
+	if name == "inline" {
+		inline = true
+	}
+	return name, inline, false
+}
+
+func mergeFeedFilter(base bson.M, cursor bson.M) bson.M {
+	if len(base) == 0 {
+		return cursor
+	}
+	if len(cursor) == 0 {
+		return base
+	}
+	return bson.M{"$and": bson.A{base, cursor}}
+}
+
 func (l *CollectionLib[P, T]) modifyPageOpt(opt *options.FindOptionsBuilder, input *PageQueryInput) {
 	pSize, pNum := 0, 0
 	if input.Pager != nil {
@@ -316,12 +569,13 @@ func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (r
 	if err != nil {
 		return
 	}
+	resource := l.resourceByFilter(filter)
 
 	opt := l.GetMergedRepoOpt(ctx)
 	if opt.TryFixSyncDelay == model.FixedStrategyNone || opt.TryFixSyncDelay == "" {
 		if err := l.cls.FindOne(ctx, filter).Decode(&ret); err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
-				return ret, datax.ErrNotFound
+				return ret, datax.NewResourceNotFoundError(resource, nil)
 			}
 
 			return ret, fmt.Errorf("mongo find failed: %w", err)
@@ -334,7 +588,7 @@ func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (r
 	err = retry.Do(func() error {
 		if err := l.cls.FindOne(ctx, filter).Decode(&ret); err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
-				return datax.ErrNotFound
+				return datax.NewResourceNotFoundError(resource, nil)
 			}
 
 			return fmt.Errorf("mongo find failed: %w", err)
@@ -345,7 +599,7 @@ func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (r
 		retry.Delay(time.Millisecond*50),
 		retry.MaxJitter(time.Millisecond*50),
 		retry.RetryIf(func(err error) bool {
-			return datax.ErrNotFound.Is(err)
+			return datax.IsErrCode(datax.ErrCodeNotFound, err)
 		}))
 
 	return
@@ -364,7 +618,7 @@ func (l *CollectionLib[P, T]) Create(ctx context.Context, doc T) (T, error) {
 	_, err := l.cls.InsertOne(ctx, doc)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			return gtx.Zero[T](), datax.ErrConflict
+			return gtx.Zero[T](), datax.NewResourceConflictError(l.resourceByDoc(doc), nil)
 		}
 		return gtx.Zero[T](), fmt.Errorf("create doc failed: %w", err)
 	}
@@ -374,7 +628,7 @@ func (l *CollectionLib[P, T]) Create(ctx context.Context, doc T) (T, error) {
 
 func (l *CollectionLib[P, T]) checkIfIDExisted(doc T) error {
 	if gtx.IsZero(doc.GetID()) {
-		return fmt.Errorf("id can not be empty")
+		return datax.NewValidationError("id can not be empty", nil, nil)
 	}
 	return nil
 }
@@ -398,7 +652,7 @@ func (l *CollectionLib[P, T]) commonReplace(ctx context.Context, doc T, isUpsert
 	rpRet, err := l.cls.ReplaceOne(ctx, filter, doc, options.Replace().SetUpsert(isUpsert))
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			return gtx.Zero[T](), datax.ErrConflict
+			return gtx.Zero[T](), datax.NewResourceConflictError(l.resourceByDoc(doc), nil)
 		}
 		return gtx.Zero[T](), fmt.Errorf("create doc failed: %w", err)
 	}
@@ -414,14 +668,14 @@ func (l *CollectionLib[P, T]) commonReplace(ctx context.Context, doc T, isUpsert
 			return gtx.Zero[T](), fmt.Errorf("check id failed: %w", err)
 		}
 		if cnt > 0 {
-			return gtx.Zero[T](), datax.NewConflictError("data is modified by other")
+			return gtx.Zero[T](), datax.NewResourceError(datax.ErrCodeConflict, "data is modified by other", l.resourceByFilter(filter), nil)
 		}
 
-		return gtx.Zero[T](), datax.ErrNotFound
+		return gtx.Zero[T](), datax.NewResourceNotFoundError(l.resourceByFilter(filter), nil)
 	}
 
 	if _, ok := filter["updated_at"]; ok && rpRet.ModifiedCount == 0 {
-		return gtx.Zero[T](), datax.NewConflictError("optimistic locking failed")
+		return gtx.Zero[T](), datax.NewResourceError(datax.ErrCodeConflict, "optimistic locking failed", l.resourceByFilter(filter), nil)
 	}
 
 	return doc, nil
@@ -509,7 +763,7 @@ func (l *CollectionLib[P, T]) PatchRaw(ctx context.Context, input *PatchRawInput
 	if _, ok := any(gtx.Zero[T]()).(model.UpdateAuditor); ok {
 		u, hasUser := pass.CtxGetOperator(ctx)
 		if !hasUser {
-			return fmt.Errorf("there is no user in context")
+			return datax.NewValidationError("there is no user in context", nil, nil)
 		}
 		input.PatchPayload["updated_at"] = timex.Now()
 		input.PatchPayload["updated_by"] = u
@@ -527,11 +781,11 @@ func (l *CollectionLib[P, T]) PatchRaw(ctx context.Context, input *PatchRawInput
 	}
 
 	if ret.MatchedCount == 0 {
-		return datax.ErrNotFound
+		return datax.NewResourceNotFoundError(l.resourceByFilter(input.Filter), nil)
 	}
 
 	if _, ok := input.Filter["updated_at"]; ok && ret.ModifiedCount == 0 {
-		return datax.NewConflictError("optimistic locking failed")
+		return datax.NewResourceError(datax.ErrCodeConflict, "optimistic locking failed", l.resourceByFilter(input.Filter), nil)
 	}
 
 	return nil
@@ -561,7 +815,7 @@ func (l *CollectionLib[P, T]) Delete(ctx context.Context, doc T) (err error) {
 		return err
 	}
 	if dr.DeletedCount == 0 {
-		return datax.ErrNotFound
+		return datax.NewResourceNotFoundError(l.resourceByDoc(doc), nil)
 	}
 
 	return
@@ -584,7 +838,7 @@ func (l *CollectionLib[P, T]) BatchCreate(ctx context.Context, docs []T) error {
 	_, err := l.cls.InsertMany(ctx, mongoDocs)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			return datax.ErrConflict
+			return datax.NewResourceConflictError(l.resourceByDocs(docs), nil)
 		}
 		return fmt.Errorf("batch create doc failed: %w", err)
 	}
@@ -634,7 +888,7 @@ func (l *CollectionLib[P, T]) BatchDeleteByFilter(ctx context.Context, filter bs
 
 		u, ok := pass.CtxGetOperator(ctx)
 		if !ok {
-			return 0, fmt.Errorf("there is no user")
+			return 0, datax.NewValidationError("there is no user", nil, nil)
 		}
 
 		updatePayload := &bson.M{
@@ -649,7 +903,7 @@ func (l *CollectionLib[P, T]) BatchDeleteByFilter(ctx context.Context, filter bs
 		}
 
 		if ret.MatchedCount == 0 {
-			return 0, datax.ErrNotFound
+			return 0, datax.NewResourceNotFoundError(l.resourceByFilter(filter), nil)
 		}
 
 		return int(ret.MatchedCount), nil
@@ -661,10 +915,33 @@ func (l *CollectionLib[P, T]) BatchDeleteByFilter(ctx context.Context, filter bs
 	}
 
 	if ret.DeletedCount == 0 {
-		return 0, datax.ErrNotFound
+		return 0, datax.NewResourceNotFoundError(l.resourceByFilter(filter), nil)
 	}
 
 	return int(ret.DeletedCount), nil
+}
+
+func (l *CollectionLib[P, T]) resourceByID(id any) string {
+	return fmt.Sprintf("%s/%v", l.cls.Name(), id)
+}
+
+func (l *CollectionLib[P, T]) resourceByDoc(doc T) string {
+	return l.resourceByID(doc.GetID())
+}
+
+func (l *CollectionLib[P, T]) resourceByDocs(docs []T) string {
+	ids := make([]P, 0, len(docs))
+	for _, doc := range docs {
+		ids = append(ids, doc.GetID())
+	}
+	return fmt.Sprintf("%s ids=%v", l.cls.Name(), ids)
+}
+
+func (l *CollectionLib[P, T]) resourceByFilter(filter bson.M) string {
+	if id, ok := filter[l.idKey]; ok {
+		return l.resourceByID(id)
+	}
+	return fmt.Sprintf("%s filter=%v", l.cls.Name(), filter)
 }
 
 // Ptr returns a pointer to val.
