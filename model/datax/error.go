@@ -85,9 +85,6 @@ func (e *BaseError) Is(target error) bool {
 	return e.Code != 0 && errors.As(target, &coded) && coded.ErrorCode() == e.Code
 }
 
-// Error is kept as a compatibility alias for BaseError.
-type Error = BaseError
-
 // NewError returns a common error.
 func NewError(code int, message string, cause error) *BaseError {
 	return &BaseError{Code: code, Message: message, Cause: cause}
