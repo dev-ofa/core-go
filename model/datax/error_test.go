@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestCoreErrors(t *testing.T) {
+func TestErrors(t *testing.T) {
 	root := errors.New("root cause")
 
 	expected := NewError(ErrCodeExpected, "expected failure", root)
@@ -14,13 +14,13 @@ func TestCoreErrors(t *testing.T) {
 		t.Fatalf("expected error message = %q, want %q", got, want)
 	}
 	if !IsExpected(expected) {
-		t.Fatal("expected base error should be classified as expected")
+		t.Fatal("expected error should be classified as expected")
 	}
 	if IsUnexpected(expected) {
-		t.Fatal("expected base error should not be classified as unexpected")
+		t.Fatal("expected error should not be classified as unexpected")
 	}
 	if !errors.Is(expected, root) {
-		t.Fatal("expected base error should unwrap its cause")
+		t.Fatal("expected error should unwrap its cause")
 	}
 
 	wrappedExpected := fmt.Errorf("wrap: %w", expected)
@@ -33,13 +33,13 @@ func TestCoreErrors(t *testing.T) {
 		t.Fatalf("unexpected error message = %q, want %q", got, want)
 	}
 	if !IsUnexpected(unexpected) {
-		t.Fatal("unexpected base error should be classified as unexpected")
+		t.Fatal("unexpected error should be classified as unexpected")
 	}
 	if IsExpected(unexpected) {
-		t.Fatal("unexpected base error should not be classified as expected")
+		t.Fatal("unexpected error should not be classified as expected")
 	}
 	if !errors.Is(unexpected, root) {
-		t.Fatal("unexpected base error should unwrap its cause")
+		t.Fatal("unexpected error should unwrap its cause")
 	}
 }
 
@@ -229,7 +229,7 @@ func TestRetryableError(t *testing.T) {
 	}
 }
 
-func TestErrHttpIsCoreError(t *testing.T) {
+func TestErrHttpIsError(t *testing.T) {
 	err := NewErrHttp(502, []byte("bad gateway"))
 
 	if got := CodeOf(err); got != ErrCodeUnexpected {

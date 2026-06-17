@@ -42,8 +42,8 @@ type CauseError interface {
 	Unwrap() error
 }
 
-// CoreError is the core error type with a stable code, message, and cause.
-type CoreError struct {
+// BaseError is the common error type with a stable code, message, and cause.
+type BaseError struct {
 	// Code is the stable error code.
 	Code int
 	// Message is the human-readable message.
@@ -53,7 +53,7 @@ type CoreError struct {
 }
 
 // Error implements error.
-func (e *CoreError) Error() string {
+func (e *BaseError) Error() string {
 	if e.Message != "" && e.Cause != nil {
 		return fmt.Sprintf("%s: %v", e.Message, e.Cause)
 	}
@@ -67,47 +67,8 @@ func (e *CoreError) Error() string {
 }
 
 // Unwrap exposes the source error.
-func (e *CoreError) Unwrap() error {
+func (e *BaseError) Unwrap() error {
 	return e.Cause
-}
-
-// ErrorCode returns the stable error code.
-func (e *CoreError) ErrorCode() int {
-	return e.Code
-}
-
-// Is checks whether target carries the same error code.
-func (e *CoreError) Is(target error) bool {
-	if e == nil || target == nil {
-		return false
-	}
-	var coded CodedError
-	return e.Code != 0 && errors.As(target, &coded) && coded.ErrorCode() == e.Code
-}
-
-// NewError returns a core error.
-func NewError(code int, message string, cause error) *CoreError {
-	return &CoreError{Code: code, Message: message, Cause: cause}
-}
-
-// BaseError is the legacy common error type with code and message.
-type BaseError struct {
-	// Code is the business error code.
-	Code int
-	// Message is the human-readable message.
-	Message string
-	// Data carries extra error details.
-	Data interface{}
-	// SourceSrv is the upstream service name if any.
-	SourceSrv string
-}
-
-// Error implements error.
-func (e *BaseError) Error() string {
-	if e.SourceSrv != "" {
-		return fmt.Sprintf("call: %s failed, code: %d, msg: %s", e.SourceSrv, e.Code, e.Message)
-	}
-	return e.Message
 }
 
 // ErrorCode returns the stable error code.
@@ -122,6 +83,14 @@ func (e *BaseError) Is(target error) bool {
 	}
 	var coded CodedError
 	return e.Code != 0 && errors.As(target, &coded) && coded.ErrorCode() == e.Code
+}
+
+// Error is kept as a compatibility alias for BaseError.
+type Error = BaseError
+
+// NewError returns a common error.
+func NewError(code int, message string, cause error) *BaseError {
+	return &BaseError{Code: code, Message: message, Cause: cause}
 }
 
 // ErrWrapper is the legacy wrapper validation error shape.
@@ -150,7 +119,7 @@ func (e *ErrWrapper) ErrorCode() int {
 
 // ErrHttp reports HTTP validation errors from external calls.
 type ErrHttp struct {
-	CoreError
+	BaseError
 	// StatusCode is the HTTP status code.
 	StatusCode int
 	// Body is the raw response body.
@@ -168,7 +137,7 @@ func (e *ErrHttp) Error() string {
 // NewErrHttp returns an HTTP protocol response error.
 func NewErrHttp(statusCode int, body []byte) *ErrHttp {
 	return &ErrHttp{
-		CoreError:  CoreError{Code: ErrCodeUnexpected, Message: "http validate failed"},
+		BaseError:  BaseError{Code: ErrCodeUnexpected, Message: "http validate failed"},
 		StatusCode: statusCode,
 		Body:       body,
 	}
@@ -278,7 +247,7 @@ func ErrorData(err error) interface{} {
 
 // ValidationError is an expected error for invalid input or precondition failures.
 type ValidationError struct {
-	CoreError
+	BaseError
 	// Items describes invalid fields or validation rules.
 	Items []ValidateErrItem
 }
@@ -292,14 +261,14 @@ func NewValidationError(message string, items []ValidateErrItem, cause error) *V
 		message = "validation failed"
 	}
 	return &ValidationError{
-		CoreError: CoreError{Code: ErrCodeValidate, Message: message, Cause: cause},
+		BaseError: BaseError{Code: ErrCodeValidate, Message: message, Cause: cause},
 		Items:     items,
 	}
 }
 
 // ResourceError is an expected error for resource failures.
 type ResourceError struct {
-	CoreError
+	BaseError
 	// Resource identifies the missing resource when available.
 	Resource string
 }
@@ -316,7 +285,7 @@ func NewResourceError(code int, message string, resource string, cause error) *R
 		message = fmt.Sprintf("%s: %s", message, resource)
 	}
 	return &ResourceError{
-		CoreError: CoreError{Code: code, Message: message, Cause: cause},
+		BaseError: BaseError{Code: code, Message: message, Cause: cause},
 		Resource:  resource,
 	}
 }
@@ -333,7 +302,7 @@ func NewResourceConflictError(resource string, cause error) *ResourceError {
 
 // InternalError is an unexpected error for internal failures.
 type InternalError struct {
-	CoreError
+	BaseError
 }
 
 // NewInternalFailure returns an unexpected internal error.
@@ -341,7 +310,7 @@ func NewInternalFailure(message string, cause error) *InternalError {
 	if message == "" {
 		message = "internal error"
 	}
-	return &InternalError{CoreError: CoreError{Code: ErrCodeUnexpected, Message: message, Cause: cause}}
+	return &InternalError{BaseError: BaseError{Code: ErrCodeUnexpected, Message: message, Cause: cause}}
 }
 
 // UpstreamError wraps an upstream or dependency failure with call context.
@@ -414,7 +383,7 @@ func NewInternalError(msg string) error {
 	if msg == "" {
 		msg = "internal server error"
 	}
-	return &InternalError{CoreError: CoreError{Code: ErrCodeUnexpected, Message: msg}}
+	return &InternalError{BaseError: BaseError{Code: ErrCodeUnexpected, Message: msg}}
 }
 
 // NewValidateError returns a validation error with detail items.

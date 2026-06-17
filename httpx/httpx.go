@@ -45,7 +45,7 @@ func (c *CommonWrapper) Validate() error {
 
 // WrapperError describes an application wrapper validation failure.
 type WrapperError struct {
-	datax.CoreError
+	datax.BaseError
 	Code      int
 	Message   string
 	RequestID string
@@ -61,7 +61,7 @@ func NewWrapperError(code int, message string, requestID string, data any) *Wrap
 		message = "httpx wrapper validate failed"
 	}
 	return &WrapperError{
-		CoreError: *datax.NewError(code, message, nil),
+		BaseError: *datax.NewError(code, message, nil),
 		Code:      code,
 		Message:   message,
 		RequestID: requestID,
