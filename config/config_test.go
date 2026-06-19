@@ -11,6 +11,7 @@ import (
 type testConfig struct {
 	App struct {
 		Name string `yaml:"name"`
+		Env  string `yaml:"env"`
 	} `yaml:"app"`
 	HTTP struct {
 		Port int `yaml:"port"`
@@ -29,6 +30,18 @@ type sensitiveOptionalConfig struct {
 			MiniProgramSecret string `yaml:"mini_program_secret" mapstructure:"mini_program_secret"`
 		} `yaml:"wechat" mapstructure:"wechat"`
 	} `yaml:"auth" mapstructure:"auth"`
+}
+
+type customDeployEnvConfig struct {
+	Service struct {
+		Profile string `yaml:"profile"`
+	} `yaml:"service"`
+	HTTP struct {
+		Port int `yaml:"port"`
+	} `yaml:"http"`
+	DB struct {
+		URI string `yaml:"uri"`
+	} `yaml:"db"`
 }
 
 func TestLoadPrecedenceAndMasking(t *testing.T) {
@@ -62,7 +75,7 @@ http:
 		t.Fatalf("write env: %v", err)
 	}
 
-	t.Setenv("ENV", "dev")
+	t.Setenv("APP__ENV", "dev")
 	t.Setenv("APP__HTTP__PORT", "9090")
 	t.Setenv("APP__DB__URI", "mongodb://env-user:env-pass@localhost:27017/db")
 
@@ -76,6 +89,9 @@ http:
 	}
 	if cfg.HTTP.Port != 6060 {
 		t.Fatalf("port want 6060 got %d", cfg.HTTP.Port)
+	}
+	if cfg.App.Env != "dev" {
+		t.Fatalf("app env want dev got %q", cfg.App.Env)
 	}
 	if len(meta.Sources) != 4 {
 		t.Fatalf("sources want 4 got %v", meta.Sources)
@@ -107,7 +123,7 @@ db:
 		t.Fatalf("write default: %v", err)
 	}
 
-	t.Setenv("ENV", "prod")
+	t.Setenv("APP__ENV", "prod")
 	t.Setenv("APP__HTTP__PORT", "9090")
 	t.Setenv("APP__DB__URI", "mongodb://env-user:env-pass@localhost:27017/db")
 
@@ -223,7 +239,7 @@ logging:
 		t.Fatalf("write local: %v", err)
 	}
 
-	t.Setenv("ENV", "dev")
+	t.Setenv("APP__ENV", "dev")
 	t.Setenv("APP__DB__URI", "mongodb://env-user:env-pass@localhost:27017/db")
 	t.Setenv("APP__LOGGING__LEVEL", "ERROR")
 
@@ -306,8 +322,8 @@ db:
 	opts.DefaultConfigPath = defaultPath
 	opts.RequiredKeys = []string{"db.uri"}
 	_, _, err := Load[testConfig](opts)
-        if err == nil {
-                t.Fatalf("expected sensitive placeholder error")
+	if err == nil {
+		t.Fatalf("expected sensitive placeholder error")
 	}
 	if got := datax.CodeOf(err); got != datax.ErrCodeValidate {
 		t.Fatalf("want validation error code got %d", got)
@@ -315,43 +331,43 @@ db:
 }
 
 func TestSensitiveValueAllowedFromLocal(t *testing.T) {
-        dir := t.TempDir()
-        configDir := filepath.Join(dir, "configs")
-        defaultPath := filepath.Join(configDir, "config.yaml")
-        localPath := filepath.Join(configDir, "config.local.yaml")
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	defaultPath := filepath.Join(configDir, "config.yaml")
+	localPath := filepath.Join(configDir, "config.local.yaml")
 
-        defaultContent := `
+	defaultContent := `
 auth:
   wechat:
     mini_program_secret: ""
 `
-        localContent := `
+	localContent := `
 auth:
   wechat:
     mini_program_secret: "local-secret"
 `
 
-        if err := os.MkdirAll(configDir, 0700); err != nil {
-                t.Fatalf("mkdir: %v", err)
-        }
-        if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
-                t.Fatalf("write default: %v", err)
-        }
-        if err := os.WriteFile(localPath, []byte(localContent), 0600); err != nil {
-                t.Fatalf("write local: %v", err)
-        }
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+		t.Fatalf("write default: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localContent), 0600); err != nil {
+		t.Fatalf("write local: %v", err)
+	}
 
-        opts := NewOptions()
-        opts.DefaultConfigPath = defaultPath
-        opts.SensitiveKeys = []string{"auth.wechat.mini_program_secret"}
+	opts := NewOptions()
+	opts.DefaultConfigPath = defaultPath
+	opts.SensitiveKeys = []string{"auth.wechat.mini_program_secret"}
 
-        cfg, _, err := Load[sensitiveOptionalConfig](opts)
-        if err != nil {
-                t.Fatalf("load: %v", err)
-        }
-        if cfg.Auth.Wechat.MiniProgramSecret != "local-secret" {
-                t.Fatalf("mini program secret want local-secret got %q", cfg.Auth.Wechat.MiniProgramSecret)
-        }
+	cfg, _, err := Load[sensitiveOptionalConfig](opts)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Auth.Wechat.MiniProgramSecret != "local-secret" {
+		t.Fatalf("mini program secret want local-secret got %q", cfg.Auth.Wechat.MiniProgramSecret)
+	}
 }
 
 func TestSensitivePlaceholderRejectedFromEnv(t *testing.T) {
@@ -451,7 +467,7 @@ func TestEnvToMapIgnoresInvalidEnvNames(t *testing.T) {
 	t.Setenv("APPTEST__db__uri", "sqlite://invalid")
 	t.Setenv("APPTEST____BROKEN", "invalid")
 
-	got := envToMap("APPTEST", "__")
+	got := envToMap("APPTEST", "__", "")
 	if port, ok := got["http"].(map[string]any)["port"]; !ok || port != "8080" {
 		t.Fatalf("valid env missing: %v", got)
 	}
@@ -460,5 +476,105 @@ func TestEnvToMapIgnoresInvalidEnvNames(t *testing.T) {
 	}
 	if _, ok := got[""]; ok {
 		t.Fatalf("empty env path node should be ignored: %v", got)
+	}
+}
+
+func TestDeployEnvSelectorMapsByEnvRules(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	defaultPath := filepath.Join(configDir, "config.yaml")
+	envPath := filepath.Join(configDir, "config.dev.yaml")
+
+	defaultContent := `
+app:
+  name: demo
+http:
+  port: 8080
+db:
+  uri: "mongodb://user:******@localhost:27017/db"
+`
+	envContent := `
+http:
+  port: 7070
+`
+
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+		t.Fatalf("write default: %v", err)
+	}
+	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
+		t.Fatalf("write env: %v", err)
+	}
+
+	t.Setenv("APP__ENV", "dev")
+	t.Setenv("APP__DB__URI", "mongodb://env-user:env-pass@localhost:27017/db")
+
+	opts := NewOptions()
+	opts.DefaultConfigPath = defaultPath
+	opts.RequiredKeys = []string{"db.uri"}
+	cfg, meta, err := Load[testConfig](opts)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.App.Env != "dev" {
+		t.Fatalf("app env want dev got %q", cfg.App.Env)
+	}
+	if cfg.HTTP.Port != 7070 {
+		t.Fatalf("port want 7070 got %d", cfg.HTTP.Port)
+	}
+	if _, ok := meta.Summary["env"]; ok {
+		t.Fatalf("deploy env selector should not leak as top-level env: %v", meta.Summary)
+	}
+}
+
+func TestCustomDeployEnvKeyChangesFinalPath(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	defaultPath := filepath.Join(configDir, "config.yaml")
+	envPath := filepath.Join(configDir, "config.dev.yaml")
+
+	defaultContent := `
+http:
+  port: 8080
+db:
+  uri: "mongodb://user:******@localhost:27017/db"
+`
+	envContent := `
+http:
+  port: 7070
+`
+
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte(defaultContent), 0600); err != nil {
+		t.Fatalf("write default: %v", err)
+	}
+	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
+		t.Fatalf("write env: %v", err)
+	}
+
+	t.Setenv("SERVICE__PROFILE", "dev")
+	t.Setenv("SERVICE__DB__URI", "mongodb://env-user:env-pass@localhost:27017/db")
+
+	opts := NewOptions()
+	opts.DefaultConfigPath = defaultPath
+	opts.EnvPrefix = "SERVICE"
+	opts.DeployEnvKey = "PROFILE"
+	opts.RequiredKeys = []string{"db.uri"}
+	cfg, meta, err := Load[customDeployEnvConfig](opts)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Service.Profile != "dev" {
+		t.Fatalf("service profile want dev got %q", cfg.Service.Profile)
+	}
+	if cfg.HTTP.Port != 7070 {
+		t.Fatalf("port want 7070 got %d", cfg.HTTP.Port)
+	}
+	if len(meta.Sources) != 3 || meta.Sources[0] != "default" || meta.Sources[1] != "env-file" || meta.Sources[2] != "env" {
+		t.Fatalf("sources want [default env-file env] got %v", meta.Sources)
 	}
 }

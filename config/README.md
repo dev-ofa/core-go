@@ -7,7 +7,7 @@
 
 ## Sources and Precedence
 1. Default config file
-2. Environment-specific config file (`ENV=dev` -> `config.dev.yaml`)
+2. Environment-specific config file (`APP__ENV=dev` -> `config.dev.yaml`)
 3. Local override file (`config.local.yaml`)
 4. Environment variables
 
@@ -19,7 +19,7 @@ Command-line flags must not be used for secrets, passwords, tokens, or other sen
 - Default file: `configs/config.yaml`
 - Environment file: `configs/config.{env}.yaml`
 - Local override: `configs/config.local.yaml`
-- Deployment environment variable: `ENV` (customizable via `DeployEnvKey`)
+- Deployment environment variable: `EnvPrefix + EnvSeparator + DeployEnvKey`, `APP__ENV` by default
 - Environment variable pattern: `APP__GROUP__KEY`
 - Command-line flag extension: `--group.key=value`
 
@@ -31,7 +31,7 @@ Environment variable names must use uppercase ASCII letters, digits, and undersc
 
 ### Override Precedence
 ```bash
-ENV=dev \
+APP__ENV=dev \
 APP__HTTP__PORT=8080 \
 APP__DB__URI=mongodb://user:${DB_PASSWORD}@host:27017/db \
 your-app --http.port=9090
@@ -39,6 +39,9 @@ your-app --http.port=9090
 
 ```go
 type AppConfig struct {
+	App struct {
+		Env string `yaml:"env"`
+	} `yaml:"app"`
 	HTTP struct {
 		Port int `yaml:"port"`
 	} `yaml:"http"`
@@ -58,9 +61,11 @@ _ = err
 
 ### Environment-Specific Config File
 ```bash
-ENV=dev
+APP__ENV=dev
 ```
 By default, `configs/config.dev.yaml` is loaded when present.
+
+The selected deployment environment also participates in final config overrides. With the defaults, `APP__ENV=dev` maps to `app.env=dev`. Customizing `EnvPrefix`, `EnvSeparator`, or `DeployEnvKey` changes both the deployment environment variable name and the final config path, e.g. `SERVICE__PROFILE=dev` maps to `service.profile=dev`.
 
 ### Local Override File
 ```bash
@@ -91,6 +96,7 @@ When a sensitive config key has a concrete value, that value must come from an e
 type AppConfig struct {
 	App struct {
 		Name string `yaml:"name"`
+		Env  string `yaml:"env"`
 	} `yaml:"app"`
 	HTTP struct {
 		Port int `yaml:"port"`

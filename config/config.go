@@ -25,7 +25,7 @@ type Options struct {
 	EnvPrefix string
 	// EnvSeparator is the hierarchy separator for env keys.
 	EnvSeparator string
-	// DeployEnvKey is the environment variable name for deployment profile, e.g. ENV.
+	// DeployEnvKey is the logical key of deployment profile, e.g. ENV -> APP__ENV.
 	DeployEnvKey string
 	// Args is the command line args to parse, defaulting to os.Args[1:].
 	Args []string
@@ -70,8 +70,9 @@ func Load[T any](opts Options) (T, Meta, error) {
 		sources = append(sources, "default")
 	}
 
-	if env := strings.TrimSpace(os.Getenv(opts.DeployEnvKey)); env != "" {
-		envConfigPath := filepath.Join(baseDir, fmt.Sprintf("config.%s.yaml", strings.ToLower(env)))
+	deployEnv := resolveDeployEnv(opts)
+	if deployEnv != "" {
+		envConfigPath := filepath.Join(baseDir, fmt.Sprintf("config.%s.yaml", strings.ToLower(deployEnv)))
 		if m, ok, err := loadConfigIfExists(envConfigPath); err != nil {
 			return zero, Meta{}, err
 		} else if ok {
@@ -90,7 +91,7 @@ func Load[T any](opts Options) (T, Meta, error) {
 		sources = append(sources, "local")
 	}
 
-	envMap := envToMap(opts.EnvPrefix, opts.EnvSeparator)
+	envMap := envToMap(opts.EnvPrefix, opts.EnvSeparator, opts.DeployEnvKey)
 	if len(envMap) > 0 {
 		merged = mergeMaps(merged, applyTypedOverrides(merged, envMap))
 		recordSources(sourceMap, envMap, "env", "")
@@ -200,7 +201,7 @@ func loadConfigIfExists(path string) (map[string]any, bool, error) {
 	return m, true, nil
 }
 
-func envToMap(prefix, sep string) map[string]any {
+func envToMap(prefix, sep, deployEnvKey string) map[string]any {
 	res := map[string]any{}
 	if prefix == "" || sep == "" {
 		return res
@@ -219,6 +220,11 @@ func envToMap(prefix, sep string) map[string]any {
 		if !isValidEnvName(key) {
 			continue
 		}
+		if deployEnvKey != "" && key == deployEnvVarName(Options{EnvPrefix: prefix, EnvSeparator: sep, DeployEnvKey: deployEnvKey}) {
+			nodes := append([]string{strings.ToLower(prefix)}, splitEnvPath(deployEnvKey, sep)...)
+			setPath(res, nodes, val)
+			continue
+		}
 		path := strings.TrimPrefix(key, p)
 		if path == "" {
 			continue
@@ -227,12 +233,22 @@ func envToMap(prefix, sep string) map[string]any {
 		if hasEmptyNode(nodes) {
 			continue
 		}
-		for i := range nodes {
-			nodes[i] = strings.ToLower(nodes[i])
-		}
-		setPath(res, nodes, val)
+		setPath(res, lowerNodes(nodes), val)
 	}
 	return res
+}
+
+func splitEnvPath(path, sep string) []string {
+	nodes := strings.Split(path, sep)
+	return lowerNodes(nodes)
+}
+
+func lowerNodes(nodes []string) []string {
+	out := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		out = append(out, strings.ToLower(node))
+	}
+	return out
 }
 
 func isValidEnvName(name string) bool {
@@ -258,6 +274,25 @@ func hasEmptyNode(nodes []string) bool {
 		}
 	}
 	return false
+}
+
+func resolveDeployEnv(opts Options) string {
+	if key := deployEnvVarName(opts); key != "" {
+		if env := strings.TrimSpace(os.Getenv(key)); env != "" {
+			return env
+		}
+	}
+	return ""
+}
+
+func deployEnvVarName(opts Options) string {
+	if opts.DeployEnvKey == "" {
+		return ""
+	}
+	if opts.EnvPrefix == "" || opts.EnvSeparator == "" {
+		return opts.DeployEnvKey
+	}
+	return opts.EnvPrefix + opts.EnvSeparator + opts.DeployEnvKey
 }
 
 func argsToMap(args []string) map[string]any {
