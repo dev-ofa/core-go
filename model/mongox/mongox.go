@@ -216,8 +216,7 @@ func (l *CollectionLib[P, T]) injectSoftDeleteCond(ctx context.Context, filter b
 	return filter, nil
 }
 
-// InjectCond injects isolation and soft-delete conditions into filter.
-func (l *CollectionLib[P, T]) InjectCond(ctx context.Context, filter bson.M) (bson.M, error) {
+func (l *CollectionLib[P, T]) injectCond(ctx context.Context, filter bson.M) (bson.M, error) {
 	if filter == nil {
 		filter = bson.M{}
 	}
@@ -235,7 +234,7 @@ func (l *CollectionLib[P, T]) InjectCond(ctx context.Context, filter bson.M) (bs
 
 // Find queries documents by filter.
 func (l *CollectionLib[P, T]) Find(ctx context.Context, filter bson.M, opts ...options.Lister[options.FindOptions]) (ret []T, err error) {
-	filter, err = l.InjectCond(ctx, filter)
+	filter, err = l.injectCond(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -252,9 +251,18 @@ func (l *CollectionLib[P, T]) Find(ctx context.Context, filter bson.M, opts ...o
 	return
 }
 
+// Count counts documents by filter with isolation and soft-delete rules.
+func (l *CollectionLib[P, T]) Count(ctx context.Context, filter bson.M) (ret int64, err error) {
+	filter, err = l.injectCond(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+	return l.cls.CountDocuments(ctx, filter)
+}
+
 // PageQuery performs a paged query with filter, sort, and paging input.
 func (l *CollectionLib[P, T]) PageQuery(ctx context.Context, input *PageQueryInput) (ret *model.PagedResult[T], err error) {
-	input.Filter, err = l.InjectCond(ctx, input.Filter)
+	input.Filter, err = l.injectCond(ctx, input.Filter)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +301,7 @@ func (l *CollectionLib[P, T]) FeedQuery(ctx context.Context, input *FeedQueryInp
 	}
 	cursorField := l.normalizeFeedCursorField(input.CursorField)
 
-	input.Filter, err = l.InjectCond(ctx, input.Filter)
+	input.Filter, err = l.injectCond(ctx, input.Filter)
 	if err != nil {
 		return nil, err
 	}
@@ -565,7 +573,7 @@ func (l *CollectionLib[P, T]) Get(ctx context.Context, id P) (ret T, err error) 
 
 // GetByFilter fetches one document by filter with optional retry strategy.
 func (l *CollectionLib[P, T]) GetByFilter(ctx context.Context, filter bson.M) (ret T, err error) {
-	filter, err = l.InjectCond(ctx, filter)
+	filter, err = l.injectCond(ctx, filter)
 	if err != nil {
 		return
 	}
@@ -716,7 +724,7 @@ func (l *CollectionLib[P, T]) baseUpdateOp(ctx context.Context, doc T) (bson.M, 
 	if ret.HasOriginalUpdate {
 		filter["updated_at"] = ret.OriginalUpdatedAt
 	}
-	filter, err = l.InjectCond(ctx, filter)
+	filter, err = l.injectCond(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -746,6 +754,8 @@ type PatchRawInput struct {
 	Filter bson.M
 	// PatchPayload is the update payload.
 	PatchPayload bson.M
+	// UnsetPayload is the update payload for $unset.
+	UnsetPayload bson.M
 	// IsMany controls UpdateMany vs UpdateOne.
 	IsMany bool
 	// SkipInjectCond skips isolation and soft delete injection.
@@ -755,7 +765,7 @@ type PatchRawInput struct {
 // PatchRaw applies a patch payload with optional filter injection.
 func (l *CollectionLib[P, T]) PatchRaw(ctx context.Context, input *PatchRawInput) (err error) {
 	if !input.SkipInjectCond {
-		input.Filter, err = l.InjectCond(ctx, input.Filter)
+		input.Filter, err = l.injectCond(ctx, input.Filter)
 		if err != nil {
 			return err
 		}
@@ -766,15 +776,29 @@ func (l *CollectionLib[P, T]) PatchRaw(ctx context.Context, input *PatchRawInput
 		if !hasUser {
 			return datax.NewValidationError("there is no user in context", nil, nil)
 		}
+		if input.PatchPayload == nil {
+			input.PatchPayload = bson.M{}
+		}
 		input.PatchPayload["updated_at"] = timex.Now()
 		input.PatchPayload["updated_by"] = u
 	}
 
+	updatePayload := bson.M{}
+	if len(input.PatchPayload) > 0 {
+		updatePayload["$set"] = input.PatchPayload
+	}
+	if len(input.UnsetPayload) > 0 {
+		updatePayload["$unset"] = input.UnsetPayload
+	}
+	if len(updatePayload) == 0 {
+		return nil
+	}
+
 	var ret *mongo.UpdateResult
 	if input.IsMany {
-		ret, err = l.cls.UpdateMany(ctx, input.Filter, bson.M{"$set": input.PatchPayload})
+		ret, err = l.cls.UpdateMany(ctx, input.Filter, updatePayload)
 	} else {
-		ret, err = l.cls.UpdateOne(ctx, input.Filter, bson.M{"$set": input.PatchPayload})
+		ret, err = l.cls.UpdateOne(ctx, input.Filter, updatePayload)
 	}
 
 	if err != nil {
@@ -807,7 +831,7 @@ func (l *CollectionLib[P, T]) Delete(ctx context.Context, doc T) (err error) {
 		return nil
 	}
 
-	filter, err := l.InjectCond(ctx, bson.M{l.idKey: doc.GetID()})
+	filter, err := l.injectCond(ctx, bson.M{l.idKey: doc.GetID()})
 	if err != nil {
 		return
 	}
@@ -879,7 +903,7 @@ func (l *CollectionLib[P, T]) BatchDeleteByIDs(ctx context.Context, ids []P) (cn
 
 // BatchDeleteByFilter deletes documents by filter with isolation rules.
 func (l *CollectionLib[P, T]) BatchDeleteByFilter(ctx context.Context, filter bson.M) (cnt int, err error) {
-	filter, err = l.InjectCond(ctx, filter)
+	filter, err = l.injectCond(ctx, filter)
 	if err != nil {
 		return
 	}
