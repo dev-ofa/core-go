@@ -18,6 +18,8 @@ const (
 	HeaderTenantID = "OFA_PASS_TENANT_ID"
 	// HeaderAppID is the full-link application header defined by the tracing spec.
 	HeaderAppID = "OFA_PASS_APP_ID"
+	// HeaderLocale is the full-link locale header defined by the i18n spec.
+	HeaderLocale = "OFA_PASS_LOCALE"
 	// HeaderRequestID is the single-hop request header defined by the tracing spec.
 	HeaderRequestID = "OFA_DIRECT_REQUEST_ID"
 	// HeaderRemainingTimeoutMS is the single-hop timeout budget header.

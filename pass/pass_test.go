@@ -16,6 +16,7 @@ func TestTraceContextKeysUseStandardHeaders(t *testing.T) {
 	ctx = CtxSetOperator(ctx, "operator-1")
 	ctx = CtxSetTenantID(ctx, "tenant-1")
 	ctx = CtxSetAppID(ctx, "app-1")
+	ctx = CtxSetLocale(ctx, "en-US")
 
 	traceID, ok := CtxGetTraceID(ctx)
 	require.True(t, ok)
@@ -35,6 +36,9 @@ func TestTraceContextKeysUseStandardHeaders(t *testing.T) {
 	appID, ok := CtxGetAppID(ctx)
 	require.True(t, ok)
 	require.Equal(t, "app-1", appID)
+	locale, ok := CtxGetLocale(ctx)
+	require.True(t, ok)
+	require.Equal(t, "en-US", locale)
 
 	require.Equal(t, "trace-1", ctx.Value(trace.HeaderTraceID))
 	require.Equal(t, "request-1", ctx.Value(trace.HeaderRequestID))

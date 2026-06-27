@@ -20,6 +20,8 @@ const (
 	HeaderTenantID = trace.HeaderTenantID
 	// HeaderAppID is the full-link application header defined by the tracing spec.
 	HeaderAppID = trace.HeaderAppID
+	// HeaderLocale is the full-link locale header defined by the i18n spec.
+	HeaderLocale = trace.HeaderLocale
 	// HeaderRequestID is the single-hop request header defined by the tracing spec.
 	HeaderRequestID = trace.HeaderRequestID
 	// HeaderRemainingTimeoutMS is the single-hop timeout budget header.

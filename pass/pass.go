@@ -14,6 +14,7 @@ const (
 	KeyOperator           = "OPERATOR"
 	KeyTenantID           = "TENANT_ID"
 	KeyAppID              = "APP_ID"
+	KeyLocale             = "LOCALE"
 )
 
 type contextKey string
@@ -84,6 +85,17 @@ func CtxGetAppID(ctx context.Context) (string, bool) {
 // CtxSetAppID writes app id into context.
 func CtxSetAppID(ctx context.Context, val string) context.Context {
 	return CtxSetPassVal(ctx, KeyAppID, val)
+}
+
+// CtxGetLocale reads locale from context.
+func CtxGetLocale(ctx context.Context) (string, bool) {
+	val, ok := CtxGetPassVal(ctx, KeyLocale)
+	return val, ok
+}
+
+// CtxSetLocale writes locale into context.
+func CtxSetLocale(ctx context.Context, val string) context.Context {
+	return CtxSetPassVal(ctx, KeyLocale, val)
 }
 
 // CtxGetPassVal reads a value with pass prefix.
