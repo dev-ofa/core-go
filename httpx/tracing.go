@@ -49,9 +49,8 @@ func ContextFromHeaders(ctx context.Context, header http.Header, defaultTimeout 
 		timeout = maxTimeout
 	}
 	if timeout > 0 {
-		ctx = pass.CtxSetRemainingTimeoutMS(ctx, strconv.FormatInt(timeout.Milliseconds(), 10))
 		deadline := time.Now().Add(timeout)
-		return context.WithDeadline(ctx, deadline)
+		return contextWithAuthoritativeDeadline(ctx, deadline)
 	}
 	return ctx, func() {}
 }
@@ -86,13 +85,12 @@ func injectTraceHeaders(ctx context.Context, req *http.Request) (context.Context
 	}
 	req.Header.Set(HeaderTraceID, traceID)
 	req.Header.Set(HeaderRequestID, requestID)
-	if deadline, ok := ctx.Deadline(); ok {
+	if deadline, ok := authoritativeDeadline(ctx); ok {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			return ctx, requestID, ErrTimeoutBudgetExhausted
 		}
 		remainingMS := strconv.FormatInt(remaining.Milliseconds(), 10)
-		ctx = pass.CtxSetRemainingTimeoutMS(ctx, remainingMS)
 		req.Header.Set(HeaderRemainingTimeoutMS, remainingMS)
 	}
 	return ctx, requestID, nil
@@ -106,4 +104,22 @@ func contextWithPassHeaders(ctx context.Context, header http.Header) context.Con
 		ctx = pass.CtxSetPassVal(ctx, key, vals[0])
 	}
 	return ctx
+}
+
+func authoritativeDeadline(ctx context.Context) (time.Time, bool) {
+	if deadline, ok := pass.CtxGetRequestDeadline(ctx); ok {
+		return deadline, true
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		return deadline, true
+	}
+	return time.Time{}, false
+}
+
+func contextWithAuthoritativeDeadline(ctx context.Context, deadline time.Time) (context.Context, context.CancelFunc) {
+	if existing, ok := ctx.Deadline(); ok && existing.Before(deadline) {
+		deadline = existing
+	}
+	ctx = pass.CtxSetRequestDeadline(ctx, deadline)
+	return context.WithDeadline(ctx, deadline)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"strings"
+	"time"
 )
 
 // KeyTraceID and related keys are context keys for tracing and tenancy values.
@@ -11,6 +12,7 @@ const (
 	KeyTraceID            = "TRACE_ID"
 	KeyRequestID          = "REQUEST_ID"
 	KeyRemainingTimeoutMS = "REMAINING_TIMEOUT_MS"
+	KeyRequestDeadline    = "REQUEST_DEADLINE"
 	KeyOperator           = "OPERATOR"
 	KeyTenantID           = "TENANT_ID"
 	KeyAppID              = "APP_ID"
@@ -43,15 +45,26 @@ func CtxSetRequestID(ctx context.Context, val string) context.Context {
 	return CtxSetDirectVal(ctx, KeyRequestID, val)
 }
 
-// CtxGetRemainingTimeoutMS reads remaining timeout in milliseconds from context.
+// CtxGetRemainingTimeoutMS reads the direct remaining-timeout header value from context.
 func CtxGetRemainingTimeoutMS(ctx context.Context) (string, bool) {
 	val, ok := CtxGetDirectVal(ctx, KeyRemainingTimeoutMS)
 	return val, ok
 }
 
-// CtxSetRemainingTimeoutMS writes remaining timeout in milliseconds into context.
+// CtxSetRemainingTimeoutMS writes the direct remaining-timeout header value into context.
 func CtxSetRemainingTimeoutMS(ctx context.Context, val string) context.Context {
 	return CtxSetDirectVal(ctx, KeyRemainingTimeoutMS, val)
+}
+
+// CtxGetRequestDeadline reads the standard in-process authoritative deadline.
+func CtxGetRequestDeadline(ctx context.Context) (time.Time, bool) {
+	val, ok := ctx.Value(FixedKeyValue(KeyRequestDeadline)).(time.Time)
+	return val, ok && !val.IsZero()
+}
+
+// CtxSetRequestDeadline writes the standard in-process authoritative deadline.
+func CtxSetRequestDeadline(ctx context.Context, val time.Time) context.Context {
+	return context.WithValue(ctx, FixedKeyValue(KeyRequestDeadline), val)
 }
 
 // CtxGetOperator reads operator id from context.
@@ -130,6 +143,15 @@ func CtxGetDirectVal(ctx context.Context, key string) (string, bool) {
 // CtxSetDirectVal writes a value with direct prefix.
 func CtxSetDirectVal(ctx context.Context, key string, val string) context.Context {
 	return context.WithValue(ctx, FixedKeyDirect(key), val)
+}
+
+// FixedKeyValue builds a standard OFA context value key.
+func FixedKeyValue(key string) string {
+	key = strings.ToUpper(key)
+	if strings.HasPrefix(key, "OFA_") {
+		return key
+	}
+	return "OFA_" + key
 }
 
 // FixedKey builds the pass prefixed key.

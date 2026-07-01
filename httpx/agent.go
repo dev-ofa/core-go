@@ -145,14 +145,14 @@ func (a *Agent) init() error {
 	if err != nil {
 		return err
 	}
-	if _, ok := a.ctx.Deadline(); !ok {
+	if deadline, ok := authoritativeDeadline(a.ctx); ok {
+		a.ctx, a.cancel = contextWithAuthoritativeDeadline(a.ctx, deadline)
+	} else {
 		timeout := a.timeoutQuota
 		if timeout <= 0 {
 			timeout = defaultTimeoutQuota
 		}
-		ctx, cancel := context.WithTimeout(a.ctx, timeout)
-		a.ctx = ctx
-		a.cancel = cancel
+		a.ctx, a.cancel = contextWithAuthoritativeDeadline(a.ctx, time.Now().Add(timeout))
 	}
 	if a.client == nil {
 		a.client = DefaultClient
