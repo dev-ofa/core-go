@@ -510,6 +510,7 @@ func TestContextFromHeaders(t *testing.T) {
 	header.Set(HeaderOperator, "user-1")
 	header.Set(HeaderTenantID, "tenant-1")
 	header.Set(HeaderAppID, "app-1")
+	header.Set(HeaderLocale, "en-US")
 	header.Set("OFA_PASS_FEATURE_FLAG", "gray")
 	header.Set(HeaderRemainingTimeoutMS, "5000")
 
@@ -531,6 +532,9 @@ func TestContextFromHeaders(t *testing.T) {
 	appID, ok := pass.CtxGetAppID(ctx)
 	require.True(t, ok)
 	require.Equal(t, "app-1", appID)
+	locale, ok := pass.CtxGetLocale(ctx)
+	require.True(t, ok)
+	require.Equal(t, "en-US", locale)
 	requestDeadline, ok := pass.CtxGetRequestDeadline(ctx)
 	require.True(t, ok)
 	passHeaders := pass.CtxPassHeaders(ctx)
@@ -544,6 +548,21 @@ func TestContextFromHeaders(t *testing.T) {
 	defer cancelWithoutTimeout()
 	_, ok = ctxWithoutTimeout.Deadline()
 	require.False(t, ok)
+	locale, ok = pass.CtxGetLocale(ctxWithoutTimeout)
+	require.True(t, ok)
+	require.Equal(t, "zh-CN", locale)
+}
+
+func TestContextFromHeadersFallsBackToAcceptLanguage(t *testing.T) {
+	header := http.Header{}
+	header.Set("Accept-Language", "en;q=0.9,zh-CN;q=0.8")
+
+	ctx, cancel := ContextFromHeaders(context.Background(), header, 0, 0)
+	defer cancel()
+
+	locale, ok := pass.CtxGetLocale(ctx)
+	require.True(t, ok)
+	require.Equal(t, "en-US", locale)
 }
 
 func TestTimeoutBudgetExhausted(t *testing.T) {

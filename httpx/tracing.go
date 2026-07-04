@@ -26,6 +26,9 @@ const (
 	HeaderRequestID = trace.HeaderRequestID
 	// HeaderRemainingTimeoutMS is the single-hop timeout budget header.
 	HeaderRemainingTimeoutMS = trace.HeaderRemainingTimeoutMS
+
+	acceptLanguageHeader = "Accept-Language"
+	defaultLocale        = "zh-CN"
 )
 
 // ContextFromHeaders rebuilds trace values and the local authoritative deadline
@@ -38,6 +41,7 @@ func ContextFromHeaders(ctx context.Context, header http.Header, defaultTimeout 
 	if requestID := header.Get(HeaderRequestID); requestID != "" {
 		ctx = pass.CtxSetRequestID(ctx, requestID)
 	}
+	ctx = pass.CtxSetLocale(ctx, resolveLocale(header))
 
 	timeout := defaultTimeout
 	if raw := header.Get(HeaderRemainingTimeoutMS); raw != "" {
@@ -104,6 +108,32 @@ func contextWithPassHeaders(ctx context.Context, header http.Header) context.Con
 		ctx = pass.CtxSetPassVal(ctx, key, vals[0])
 	}
 	return ctx
+}
+
+func resolveLocale(header http.Header) string {
+	if locale := normalizeLocale(header.Get(HeaderLocale)); locale != "" {
+		return locale
+	}
+	acceptLanguage := strings.TrimSpace(header.Get(acceptLanguageHeader))
+	for _, part := range strings.Split(acceptLanguage, ",") {
+		candidate := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
+		if locale := normalizeLocale(candidate); locale != "" {
+			return locale
+		}
+	}
+	return defaultLocale
+}
+
+func normalizeLocale(value string) string {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", "-"))
+	switch normalized {
+	case "zh", "zh-cn", "zh-hans", "zh-hans-cn":
+		return "zh-CN"
+	case "en", "en-us":
+		return "en-US"
+	default:
+		return ""
+	}
 }
 
 func authoritativeDeadline(ctx context.Context) (time.Time, bool) {
