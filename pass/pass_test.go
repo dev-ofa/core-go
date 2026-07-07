@@ -49,37 +49,41 @@ func TestTraceContextKeysUseStandardHeaders(t *testing.T) {
 	require.Equal(t, "trace-1", ctx.Value(trace.HeaderTraceID))
 	require.Equal(t, "request-1", ctx.Value(trace.HeaderRequestID))
 	require.Equal(t, "3000", ctx.Value(trace.HeaderRemainingTimeoutMS))
-	require.Equal(t, deadline, ctx.Value("OFA_REQUEST_DEADLINE"))
+	require.Equal(t, deadline, ctx.Value("ofa-request-deadline"))
 }
 
 func TestPassHeadersEnumeration(t *testing.T) {
 	ctx := context.Background()
 	ctx = CtxSetPassVal(ctx, KeyTraceID, "trace-1")
-	ctx = CtxSetPassVal(ctx, "OFA_PASS_FEATURE_FLAG", "gray")
+	ctx = CtxSetPassVal(ctx, "ofa-pass-feature-flag", "gray")
 
 	headers := CtxPassHeaders(ctx)
 	require.Equal(t, map[string]string{
 		trace.HeaderTraceID:     "trace-1",
-		"OFA_PASS_FEATURE_FLAG": "gray",
+		"ofa-pass-feature-flag": "gray",
 	}, headers)
 
-	headers["OFA_PASS_FEATURE_FLAG"] = "mutated"
+	headers["ofa-pass-feature-flag"] = "mutated"
 	again := CtxPassHeaders(ctx)
-	require.Equal(t, "gray", again["OFA_PASS_FEATURE_FLAG"])
+	require.Equal(t, "gray", again["ofa-pass-feature-flag"])
 }
 
 func TestFixedKeyAvoidsDoublePrefix(t *testing.T) {
-	require.Equal(t, "TRACE_ID", KeyTraceID)
-	require.Equal(t, "REQUEST_ID", KeyRequestID)
-	require.Equal(t, "REMAINING_TIMEOUT_MS", KeyRemainingTimeoutMS)
-	require.Equal(t, "REQUEST_DEADLINE", KeyRequestDeadline)
-	require.Equal(t, trace.HeaderTraceID, FixedKey("TRACE_ID"))
-	require.Equal(t, trace.HeaderTraceID, FixedKey("OFA_TRACE_ID"))
+	require.Equal(t, trace.HeaderTraceID, KeyTraceID)
+	require.Equal(t, trace.HeaderRequestID, KeyRequestID)
+	require.Equal(t, trace.HeaderRemainingTimeoutMS, KeyRemainingTimeoutMS)
+	require.Equal(t, "ofa-request-deadline", KeyRequestDeadline)
+	require.Equal(t, trace.HeaderTraceID, FixedKey("trace_id"))
+	require.Equal(t, trace.HeaderTraceID, FixedKey("ofa-trace-id"))
 	require.Equal(t, trace.HeaderTraceID, FixedKey(trace.HeaderTraceID))
-	require.Equal(t, trace.HeaderRequestID, FixedKeyDirect("REQUEST_ID"))
-	require.Equal(t, trace.HeaderRequestID, FixedKeyDirect("OFA_REQUEST_ID"))
+	require.Equal(t, trace.HeaderRequestID, FixedKeyDirect("request_id"))
+	require.Equal(t, trace.HeaderRequestID, FixedKeyDirect("ofa-request-id"))
 	require.Equal(t, trace.HeaderRequestID, FixedKeyDirect(trace.HeaderRequestID))
-	require.Equal(t, trace.HeaderRemainingTimeoutMS, FixedKeyDirect("OFA_REMAINING_TIMEOUT_MS"))
-	require.Equal(t, "OFA_REQUEST_DEADLINE", FixedKeyValue("REQUEST_DEADLINE"))
-	require.Equal(t, "OFA_REQUEST_DEADLINE", FixedKeyValue("OFA_REQUEST_DEADLINE"))
+	require.Equal(t, trace.HeaderRemainingTimeoutMS, FixedKeyDirect("ofa-remaining-timeout-ms"))
+	require.Equal(t, "ofa-request-deadline", FixedKeyValue("request_deadline"))
+	require.Equal(t, "ofa-request-deadline", FixedKeyValue("ofa-request-deadline"))
+	require.Equal(t, trace.HeaderOperator, KeyOperator)
+	require.Equal(t, trace.HeaderTenantID, KeyTenantID)
+	require.Equal(t, trace.HeaderAppID, KeyAppID)
+	require.Equal(t, trace.HeaderLocale, KeyLocale)
 }

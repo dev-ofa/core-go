@@ -5,18 +5,20 @@ import (
 	"maps"
 	"strings"
 	"time"
+
+	"github.com/dev-ofa/core-go/trace"
 )
 
-// KeyTraceID and related keys are context keys for tracing and tenancy values.
+// KeyTraceID and related keys are the standard OFA string keys.
 const (
-	KeyTraceID            = "TRACE_ID"
-	KeyRequestID          = "REQUEST_ID"
-	KeyRemainingTimeoutMS = "REMAINING_TIMEOUT_MS"
-	KeyRequestDeadline    = "REQUEST_DEADLINE"
-	KeyOperator           = "OPERATOR"
-	KeyTenantID           = "TENANT_ID"
-	KeyAppID              = "APP_ID"
-	KeyLocale             = "LOCALE"
+	KeyTraceID            = trace.HeaderTraceID
+	KeyRequestID          = trace.HeaderRequestID
+	KeyRemainingTimeoutMS = trace.HeaderRemainingTimeoutMS
+	KeyRequestDeadline    = "ofa-request-deadline"
+	KeyOperator           = trace.HeaderOperator
+	KeyTenantID           = trace.HeaderTenantID
+	KeyAppID              = trace.HeaderAppID
+	KeyLocale             = trace.HeaderLocale
 )
 
 type contextKey string
@@ -126,7 +128,7 @@ func CtxSetPassVal(ctx context.Context, key string, val string) context.Context 
 	return context.WithValue(ctx, passHeadersContextKey, headers)
 }
 
-// CtxPassHeaders returns all OFA_PASS headers stored through CtxSetPassVal.
+// CtxPassHeaders returns all ofa-pass-* headers stored through CtxSetPassVal.
 func CtxPassHeaders(ctx context.Context) map[string]string {
 	headers, _ := ctx.Value(passHeadersContextKey).(map[string]string)
 	ret := make(map[string]string, len(headers))
@@ -145,31 +147,36 @@ func CtxSetDirectVal(ctx context.Context, key string, val string) context.Contex
 	return context.WithValue(ctx, FixedKeyDirect(key), val)
 }
 
-// FixedKeyValue builds a standard OFA context value key.
+// FixedKeyValue builds a standard in-process OFA string ContextKey.
 func FixedKeyValue(key string) string {
-	key = strings.ToUpper(key)
-	if strings.HasPrefix(key, "OFA_") {
+	key = normalizeKey(key)
+	if strings.HasPrefix(key, "ofa-") {
 		return key
 	}
-	return "OFA_" + key
+	return "ofa-" + key
 }
 
-// FixedKey builds the pass prefixed key.
+// FixedKey builds the ofa-pass-* key.
 func FixedKey(key string) string {
-	key = strings.ToUpper(key)
-	if strings.HasPrefix(key, "OFA_PASS_") {
+	key = normalizeKey(key)
+	if strings.HasPrefix(key, "ofa-pass-") {
 		return key
 	}
-	key = strings.TrimPrefix(key, "OFA_")
-	return "OFA_PASS_" + key
+	key = strings.TrimPrefix(key, "ofa-")
+	return "ofa-pass-" + key
 }
 
-// FixedKeyDirect builds the direct prefixed key.
+// FixedKeyDirect builds the ofa-direct-* key.
 func FixedKeyDirect(key string) string {
-	key = strings.ToUpper(key)
-	if strings.HasPrefix(key, "OFA_DIRECT_") {
+	key = normalizeKey(key)
+	if strings.HasPrefix(key, "ofa-direct-") {
 		return key
 	}
-	key = strings.TrimPrefix(key, "OFA_")
-	return "OFA_DIRECT_" + key
+	key = strings.TrimPrefix(key, "ofa-")
+	return "ofa-direct-" + key
+}
+
+func normalizeKey(key string) string {
+	key = strings.TrimSpace(strings.ToLower(key))
+	return strings.ReplaceAll(key, "_", "-")
 }

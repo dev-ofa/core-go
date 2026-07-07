@@ -102,7 +102,7 @@ func injectTraceHeaders(ctx context.Context, req *http.Request) (context.Context
 
 func contextWithPassHeaders(ctx context.Context, header http.Header) context.Context {
 	for key, vals := range header {
-		if !strings.HasPrefix(strings.ToUpper(key), "OFA_PASS_") || len(vals) == 0 {
+		if !strings.HasPrefix(strings.ToLower(key), "ofa-pass-") || len(vals) == 0 {
 			continue
 		}
 		ctx = pass.CtxSetPassVal(ctx, key, vals[0])

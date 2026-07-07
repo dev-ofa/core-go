@@ -11,19 +11,19 @@ import (
 
 const (
 	// HeaderTraceID is the full-link trace header defined by the tracing spec.
-	HeaderTraceID = "OFA_PASS_TRACE_ID"
+	HeaderTraceID = "ofa-pass-trace-id"
 	// HeaderOperator is the full-link operator header defined by the tracing spec.
-	HeaderOperator = "OFA_PASS_OPERATOR"
+	HeaderOperator = "ofa-pass-operator"
 	// HeaderTenantID is the full-link tenant header defined by the tracing spec.
-	HeaderTenantID = "OFA_PASS_TENANT_ID"
+	HeaderTenantID = "ofa-pass-tenant-id"
 	// HeaderAppID is the full-link application header defined by the tracing spec.
-	HeaderAppID = "OFA_PASS_APP_ID"
+	HeaderAppID = "ofa-pass-app-id"
 	// HeaderLocale is the full-link locale header defined by the i18n spec.
-	HeaderLocale = "OFA_PASS_LOCALE"
+	HeaderLocale = "ofa-pass-locale"
 	// HeaderRequestID is the single-hop request header defined by the tracing spec.
-	HeaderRequestID = "OFA_DIRECT_REQUEST_ID"
+	HeaderRequestID = "ofa-direct-request-id"
 	// HeaderRemainingTimeoutMS is the single-hop timeout budget header.
-	HeaderRemainingTimeoutMS = "OFA_DIRECT_REMAINING_TIMEOUT_MS"
+	HeaderRemainingTimeoutMS = "ofa-direct-remaining-timeout-ms"
 )
 
 // NewTraceID returns a 32-character lower-case hex trace id.

@@ -193,7 +193,7 @@ func (m *Manager) Upload(ctx context.Context, scheme string, in UploadInput) (Id
 
 - 默认实现应遵循 [`docs/spec/resilience/spec.md`](../spec/resilience/spec.md) 中的 timeout quota 和 retry 约束。
 - 网络调用优先从 `ctx` 中获取 authoritative deadline；对外发起请求前，应基于当前时刻计算 remaining timeout。
-- 如果处理器调用的是遵循 OFA 规范的下游服务，应传播 `OFA_DIRECT_REMAINING_TIMEOUT_MS`；如果是外部非 OFA 服务，仍需用 remaining timeout 约束本地超时，但不要求注入该 header。
+- 如果处理器调用的是遵循 OFA 规范的下游服务，应传播 `ofa-direct-remaining-timeout-ms`；如果是外部非 OFA 服务，仍需用 remaining timeout 约束本地超时，但不要求注入该 header。
 - connect timeout 应单独配置，推荐默认值为 `3s`，且不得大于当前 remaining timeout。
 - 重试只允许用于明确幂等或可证明尚未被处理的场景：
   - 默认 `http` / `https` 读取可按 `GET` 的幂等语义进行有限重试。
