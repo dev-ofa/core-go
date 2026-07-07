@@ -76,6 +76,14 @@ func CtxGetOperator(ctx context.Context) (string, bool) {
 }
 
 // CtxSetOperator writes operator id into context.
+//
+// Use it only at trusted boundaries that establish the execution subject, such
+// as authentication/session middleware, trusted service gateways, worker or
+// webhook context creation, compensation tasks, and login/account bootstrap
+// flows. Normal handlers and services should read the operator with
+// CtxGetOperator and must not overwrite an authenticated operator to match a
+// resource owner, repository isolation condition, or audit field. System
+// initiated work should use an explicit subject such as "system:{module}".
 func CtxSetOperator(ctx context.Context, val string) context.Context {
 	return CtxSetPassVal(ctx, KeyOperator, val)
 }
